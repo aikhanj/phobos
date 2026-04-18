@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import type { AABB, GameScene, GazeTarget, Interactable, NoteId, SceneEvent, Trigger } from '@phobos/types';
 import { SCENE_CONFIGS } from '../sceneConfig';
 import { wallAABB, aabbFromCenter } from '../collision';
+import { createNoteMesh } from '../noteMesh';
+import { getTexture, type TextureType } from '../textures';
+import { applyPS1Jitter } from '../ps1Material';
 
 /**
  * BASEMENT — the ritual chamber. Phobos's calibration room.
@@ -95,12 +98,12 @@ export class Basement implements GameScene {
     const hd = d / 2;
 
     // ── shell (concrete) ───────────────────────────────────────────────
-    this.group.add(this.makeWall(w, d, new THREE.Vector3(0, 0, 0), new THREE.Euler(-Math.PI / 2, 0, 0), 0x4e4236)); // floor
-    this.group.add(this.makeWall(w, d, new THREE.Vector3(0, h, 0), new THREE.Euler(Math.PI / 2, 0, 0), 0x2a2420));  // ceiling
-    this.group.add(this.makeWall(w, h, new THREE.Vector3(0, h / 2, -hd), new THREE.Euler(0, 0, 0), 0x605246));      // north
-    this.group.add(this.makeWall(w, h, new THREE.Vector3(0, h / 2, hd), new THREE.Euler(0, Math.PI, 0), 0x605246)); // south
-    this.group.add(this.makeWall(d, h, new THREE.Vector3(-hw, h / 2, 0), new THREE.Euler(0, Math.PI / 2, 0), 0x564a3e));  // west
-    this.group.add(this.makeWall(d, h, new THREE.Vector3(hw, h / 2, 0), new THREE.Euler(0, -Math.PI / 2, 0), 0x564a3e)); // east
+    this.group.add(this.makeWall(w, d, new THREE.Vector3(0, 0, 0), new THREE.Euler(-Math.PI / 2, 0, 0), 'concrete_floor')); // floor
+    this.group.add(this.makeWall(w, d, new THREE.Vector3(0, h, 0), new THREE.Euler(Math.PI / 2, 0, 0), 'plaster'));         // ceiling
+    this.group.add(this.makeWall(w, h, new THREE.Vector3(0, h / 2, -hd), new THREE.Euler(0, 0, 0), 'concrete'));            // north
+    this.group.add(this.makeWall(w, h, new THREE.Vector3(0, h / 2, hd), new THREE.Euler(0, Math.PI, 0), 'concrete'));       // south
+    this.group.add(this.makeWall(d, h, new THREE.Vector3(-hw, h / 2, 0), new THREE.Euler(0, Math.PI / 2, 0), 'concrete_dark'));  // west
+    this.group.add(this.makeWall(d, h, new THREE.Vector3(hw, h / 2, 0), new THREE.Euler(0, -Math.PI / 2, 0), 'concrete_dark')); // east
 
     // ── bare overhead bulb (strung on a cord over the circle) ──────────
     this.group.add(this.makeProp(0.02, 1.0, 0.02, new THREE.Vector3(0, h - 0.5, 1.5), 0x1a1a1a)); // cord
@@ -118,14 +121,26 @@ export class Basement implements GameScene {
     this.group.add(new THREE.AmbientLight(cfg.ambientColor, cfg.ambientIntensity));
 
     // ── ceiling pipes (wrap the room, sell the "basement" feel) ────────
-    this.group.add(this.makeProp(0.1, 0.1, w - 0.6, new THREE.Vector3(-hw + 0.4, h - 0.15, 0), 0x2a2420));
-    this.group.add(this.makeProp(0.1, 0.1, w - 0.6, new THREE.Vector3(hw - 0.4, h - 0.15, 0), 0x2a2420));
-    this.group.add(this.makeProp(d - 0.8, 0.1, 0.1, new THREE.Vector3(0, h - 0.35, -hd + 0.4), 0x2a2420));
+    this.group.add(this.makeProp(0.1, 0.1, w - 0.6, new THREE.Vector3(-hw + 0.4, h - 0.15, 0), 'metal'));
+    this.group.add(this.makeProp(0.1, 0.1, w - 0.6, new THREE.Vector3(hw - 0.4, h - 0.15, 0), 'metal'));
+    this.group.add(this.makeProp(d - 0.8, 0.1, 0.1, new THREE.Vector3(0, h - 0.35, -hd + 0.4), 'metal'));
     // a single vertical drop (pipe from ceiling down to boiler)
-    this.group.add(this.makeProp(0.1, 1.4, 0.1, new THREE.Vector3(-hw + 0.8, h - 1.4, -hd + 0.8), 0x2a2420));
+    this.group.add(this.makeProp(0.1, 1.4, 0.1, new THREE.Vector3(-hw + 0.8, h - 1.4, -hd + 0.8), 'metal'));
 
     // ── chalk circle + 4 candles (the ritual) ─────────────────────────
-    this.buildChalkCircle(0, 0.005, 1.5);
+    // ── z-fighting fix ──────────────────────────────────────────────
+    // "Z-fighting" happens when two surfaces occupy nearly the same
+    // depth and the GPU's finite-precision depth buffer cannot
+    // consistently determine which one is in front. Each frame the
+    // winner flips randomly, creating a flickering shimmer.
+    //
+    // The chalk circle was at Y = 0.005 (5 mm above the floor at Y=0).
+    // At the player's eye height of 1.6 m, the depth buffer only has
+    // ~24 bits to discriminate the entire near/far range, so 5 mm is
+    // not reliably distinguishable from 0. Raising to Y = 0.03 (3 cm)
+    // gives the depth buffer a comfortable margin while remaining
+    // imperceptible to the player looking down from 1.6 m.
+    this.buildChalkCircle(0, 0.03, 1.5);
     this.placeCandle(-0.8, 0.2, 1.5);
     this.placeCandle(0.8, 0.2, 1.5);
     this.placeCandle(0, 0.2, 0.7);
@@ -153,21 +168,22 @@ export class Basement implements GameScene {
     this.buildShelfWithJars(-1.0, 1.6, -hd + 0.22);
 
     // ── relocatable crate (gaze-gated) ─────────────────────────────────
-    this.crate = this.makeProp(0.6, 0.6, 0.6, this.crateHome, 0x2a1f14);
+    this.crate = this.makeProp(0.6, 0.6, 0.6, this.crateHome, 'wood_dark');
     this.group.add(this.crate);
     // crate top detail (lid-line)
-    const lidRim = this.makeProp(0.62, 0.02, 0.62, new THREE.Vector3(this.crateHome.x, 0.61, this.crateHome.z), 0x180f08);
+    // Raised rim Y from 0.61 → 0.63 to prevent z-fighting with the
+    // crate body's top face at Y = 0.6 (0.3 center + 0.3 half-height).
+    const lidRim = this.makeProp(0.62, 0.02, 0.62, new THREE.Vector3(this.crateHome.x, 0.63, this.crateHome.z), 'wood_dark');
     lidRim.userData.isCrateRim = true;
     this.group.add(lidRim);
 
     // ── stairs (+X side, ascending toward -Z into a dark void) ────────
     this.buildStairs(hw - 0.6, -hd + 0.6);
 
-    // ── narrative notes ──
-    const noteMat = new THREE.MeshLambertMaterial({ color: 0xe8dcc8, flatShading: true });
+    // ── narrative notes (aged paper — holes, stains, torn edges) ──
 
     // Note 1: grant proposal — on the workbench
-    this.noteGrant = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 0.25), noteMat.clone());
+    this.noteGrant = createNoteMesh(0.18, 0.25);
     this.noteGrant.rotation.x = -Math.PI / 2;
     this.noteGrant.position.set(-hw + 1.2, 0.92, 0.4);
     this.noteGrant.visible = false;
@@ -178,7 +194,7 @@ export class Basement implements GameScene {
     this.group.add(this.noteGrantLight);
 
     // Note 2: lab journal — near the shelf
-    this.noteLab = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 0.25), noteMat.clone());
+    this.noteLab = createNoteMesh(0.18, 0.25);
     this.noteLab.rotation.x = -Math.PI / 2;
     this.noteLab.position.set(hw - 1.8, 0.92, -1.0);
     this.noteLab.visible = false;
@@ -501,7 +517,22 @@ export class Basement implements GameScene {
 
     const mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(1.8, 1.8),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }),
+      // ── polygonOffset ────────────────────────────────────────────
+      // Even with the raised Y position, `polygonOffset` provides a
+      // second line of defence. It biases the depth value during
+      // rasterisation so the GPU treats this surface as slightly
+      // closer to the camera than its geometric position. Negative
+      // factor/units pull the surface forward in depth space.
+      // Factor scales with the polygon's depth slope; units add a
+      // constant bias in depth-buffer increments.
+      new THREE.MeshBasicMaterial({
+        map: tex,
+        transparent: true,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+      }),
     );
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.set(x, y, z);
@@ -562,9 +593,9 @@ export class Basement implements GameScene {
 
   private buildCRT(x: number, y: number, z: number): void {
     // stand
-    this.group.add(this.makeProp(0.6, 0.3, 0.45, new THREE.Vector3(x, y - 0.4, z), 0x120d0a));
+    this.group.add(this.makeProp(0.6, 0.3, 0.45, new THREE.Vector3(x, y - 0.4, z), 'metal'));
     // cabinet
-    this.group.add(this.makeProp(0.7, 0.55, 0.55, new THREE.Vector3(x, y, z), 0x0e0c0a));
+    this.group.add(this.makeProp(0.7, 0.55, 0.55, new THREE.Vector3(x, y, z), 'metal'));
     // screen recess (dark bevel)
     this.group.add(this.makeProp(0.58, 0.42, 0.02, new THREE.Vector3(x - 0.28, y, z), 0x060404));
 
@@ -582,7 +613,10 @@ export class Basement implements GameScene {
     // screen plane (faces -X, the room's interior)
     this.tvScreen = new THREE.Mesh(
       new THREE.PlaneGeometry(0.5, 0.36),
-      new THREE.MeshBasicMaterial({ map: this.tvStaticTex, transparent: true, opacity: 1 }),
+      // depthWrite: false — transparent screen must not write to depth
+      // buffer or it will occlude geometry behind it during blackouts
+      // when opacity drops to 0 (see update() TV flicker logic).
+      new THREE.MeshBasicMaterial({ map: this.tvStaticTex, transparent: true, opacity: 1, depthWrite: false }),
     );
     this.tvScreen.rotation.y = -Math.PI / 2;
     this.tvScreen.position.set(x - 0.3, y, z);
@@ -616,21 +650,21 @@ export class Basement implements GameScene {
 
   private buildWorkbench(x: number, z: number): void {
     // surface (spans north–south along west wall)
-    this.group.add(this.makeProp(0.55, 0.05, 2.6, new THREE.Vector3(x, 0.9, z), 0x1a120c));
+    this.group.add(this.makeProp(0.55, 0.05, 2.6, new THREE.Vector3(x, 0.9, z), 'wood_dark'));
     // legs (4 corners)
     for (const [lx, lz] of [[-0.2, -1.2], [0.2, -1.2], [-0.2, 1.2], [0.2, 1.2]] as const) {
-      this.group.add(this.makeProp(0.06, 0.88, 0.06, new THREE.Vector3(x + lx, 0.44, z + lz), 0x100a06));
+      this.group.add(this.makeProp(0.06, 0.88, 0.06, new THREE.Vector3(x + lx, 0.44, z + lz), 'wood_dark'));
     }
     // front skirt
-    this.group.add(this.makeProp(0.04, 0.1, 2.5, new THREE.Vector3(x + 0.25, 0.85, z), 0x0e0906));
+    this.group.add(this.makeProp(0.04, 0.1, 2.5, new THREE.Vector3(x + 0.25, 0.85, z), 'wood_dark'));
 
     // tools on top
     // hammer
-    this.group.add(this.makeProp(0.04, 0.04, 0.3, new THREE.Vector3(x, 0.95, z - 0.6), 0x3a2a1a)); // handle
-    this.group.add(this.makeProp(0.08, 0.07, 0.12, new THREE.Vector3(x, 0.96, z - 0.8), 0x2a2a2e)); // head
+    this.group.add(this.makeProp(0.04, 0.04, 0.3, new THREE.Vector3(x, 0.95, z - 0.6), 'wood_dark')); // handle
+    this.group.add(this.makeProp(0.08, 0.07, 0.12, new THREE.Vector3(x, 0.96, z - 0.8), 'metal')); // head
     // saw (long thin rectangle laid flat)
-    this.group.add(this.makeProp(0.32, 0.02, 0.08, new THREE.Vector3(x - 0.08, 0.94, z - 0.1), 0x555560));
-    this.group.add(this.makeProp(0.06, 0.04, 0.1, new THREE.Vector3(x - 0.22, 0.95, z - 0.1), 0x3a2a1a));
+    this.group.add(this.makeProp(0.32, 0.02, 0.08, new THREE.Vector3(x - 0.08, 0.94, z - 0.1), 'metal'));
+    this.group.add(this.makeProp(0.06, 0.04, 0.1, new THREE.Vector3(x - 0.22, 0.95, z - 0.1), 'wood_dark'));
     // tin can
     this.group.add(this.makeProp(0.09, 0.11, 0.09, new THREE.Vector3(x - 0.05, 0.97, z + 0.4), 0x5a4a2a));
     // oily rag (flat mess)
@@ -641,13 +675,13 @@ export class Basement implements GameScene {
 
   private buildChairWithCoat(x: number, z: number): void {
     // seat
-    this.group.add(this.makeProp(0.45, 0.04, 0.45, new THREE.Vector3(x, 0.48, z), 0x2a1d12));
+    this.group.add(this.makeProp(0.45, 0.04, 0.45, new THREE.Vector3(x, 0.48, z), 'wood_dark'));
     // legs
     for (const [lx, lz] of [[-0.2, -0.2], [0.2, -0.2], [-0.2, 0.2], [0.2, 0.2]] as const) {
-      this.group.add(this.makeProp(0.04, 0.48, 0.04, new THREE.Vector3(x + lx, 0.24, z + lz), 0x1a0f08));
+      this.group.add(this.makeProp(0.04, 0.48, 0.04, new THREE.Vector3(x + lx, 0.24, z + lz), 'wood_dark'));
     }
     // backrest
-    this.group.add(this.makeProp(0.45, 0.55, 0.04, new THREE.Vector3(x, 0.78, z + 0.22), 0x1e1510));
+    this.group.add(this.makeProp(0.45, 0.55, 0.04, new THREE.Vector3(x, 0.78, z + 0.22), 'wood_dark'));
     // draped coat — a slouchy mass over the back
     this.group.add(this.makeProp(0.5, 0.6, 0.35, new THREE.Vector3(x, 0.7, z + 0.05), 0x1c1a24));
     // coat sleeve hanging off the side
@@ -674,31 +708,31 @@ export class Basement implements GameScene {
     // gauge (tiny box on front)
     this.group.add(this.makeProp(0.08, 0.08, 0.04, new THREE.Vector3(x + 0.42, 1.15, z + 0.1), 0x0a0806));
     // pipe up to ceiling
-    this.group.add(this.makeProp(0.1, 1.4, 0.1, new THREE.Vector3(x, 2.2, z), 0x2a2420));
+    this.group.add(this.makeProp(0.1, 1.4, 0.1, new THREE.Vector3(x, 2.2, z), 'metal'));
   }
 
   private buildBoxStack(x: number, z: number): void {
-    this.group.add(this.makeProp(0.75, 0.55, 0.6, new THREE.Vector3(x, 0.28, z), 0x3a2a1a));
-    this.group.add(this.makeProp(0.65, 0.45, 0.55, new THREE.Vector3(x - 0.05, 0.78, z + 0.05), 0x3a2a1a));
+    this.group.add(this.makeProp(0.75, 0.55, 0.6, new THREE.Vector3(x, 0.28, z), 'wood_dark'));
+    this.group.add(this.makeProp(0.65, 0.45, 0.55, new THREE.Vector3(x - 0.05, 0.78, z + 0.05), 'wood_dark'));
     // tape strip on top box
     this.group.add(this.makeProp(0.66, 0.02, 0.08, new THREE.Vector3(x - 0.05, 1.01, z + 0.05), 0x8a7a54));
     // small box on floor beside
-    this.group.add(this.makeProp(0.4, 0.3, 0.35, new THREE.Vector3(x - 0.7, 0.15, z + 0.2), 0x2a1d14));
+    this.group.add(this.makeProp(0.4, 0.3, 0.35, new THREE.Vector3(x - 0.7, 0.15, z + 0.2), 'wood_dark'));
   }
 
   private buildShelfWithJars(x: number, y: number, z: number): void {
     // shelf plank
-    this.group.add(this.makeProp(1.6, 0.04, 0.28, new THREE.Vector3(x, y, z), 0x1c1410));
+    this.group.add(this.makeProp(1.6, 0.04, 0.28, new THREE.Vector3(x, y, z), 'wood_dark'));
     // brackets
-    this.group.add(this.makeProp(0.06, 0.15, 0.25, new THREE.Vector3(x - 0.75, y - 0.08, z), 0x0e0806));
-    this.group.add(this.makeProp(0.06, 0.15, 0.25, new THREE.Vector3(x + 0.75, y - 0.08, z), 0x0e0806));
+    this.group.add(this.makeProp(0.06, 0.15, 0.25, new THREE.Vector3(x - 0.75, y - 0.08, z), 'wood_dark'));
+    this.group.add(this.makeProp(0.06, 0.15, 0.25, new THREE.Vector3(x + 0.75, y - 0.08, z), 'wood_dark'));
     // lower shelf plank
-    this.group.add(this.makeProp(1.6, 0.04, 0.28, new THREE.Vector3(x, y - 0.55, z), 0x1c1410));
+    this.group.add(this.makeProp(1.6, 0.04, 0.28, new THREE.Vector3(x, y - 0.55, z), 'wood_dark'));
     // jars of indeterminate contents (dark green, spaced)
     for (let i = -3; i <= 3; i += 2) {
       this.group.add(this.makeProp(0.14, 0.22, 0.14, new THREE.Vector3(x + i * 0.22, y + 0.13, z + 0.02), 0x1a3028));
       // lid
-      this.group.add(this.makeProp(0.16, 0.03, 0.16, new THREE.Vector3(x + i * 0.22, y + 0.26, z + 0.02), 0x3a2a1a));
+      this.group.add(this.makeProp(0.16, 0.03, 0.16, new THREE.Vector3(x + i * 0.22, y + 0.26, z + 0.02), 'wood_dark'));
     }
     // a book on lower shelf
     this.group.add(this.makeProp(0.24, 0.1, 0.18, new THREE.Vector3(x + 0.3, y - 0.48, z + 0.02), 0x2a1208));
@@ -708,40 +742,45 @@ export class Basement implements GameScene {
     const steps = 6;
     for (let i = 0; i < steps; i++) {
       // tread
-      this.group.add(this.makeProp(1.0, 0.04, 0.32, new THREE.Vector3(x, 0.16 + i * 0.2, zStart + i * 0.32), 0x1e1610));
+      this.group.add(this.makeProp(1.0, 0.04, 0.32, new THREE.Vector3(x, 0.16 + i * 0.2, zStart + i * 0.32), 'wood_dark'));
       // riser
-      this.group.add(this.makeProp(1.0, 0.2, 0.04, new THREE.Vector3(x, 0.1 + i * 0.2, zStart + i * 0.32 - 0.14), 0x120c08));
+      this.group.add(this.makeProp(1.0, 0.2, 0.04, new THREE.Vector3(x, 0.1 + i * 0.2, zStart + i * 0.32 - 0.14), 'wood_dark'));
       // stringer (side) — single long plank
+      // Offset stringers by ±0.52 instead of ±0.5 so their inner faces
+      // don't share the exact same plane as tread/riser side edges
+      // (coplanar faces z-fight even with the log depth buffer).
       if (i === 0) {
-        this.group.add(this.makeProp(0.04, 1.4, steps * 0.32, new THREE.Vector3(x - 0.5, 0.7, zStart + steps * 0.16), 0x0e0806));
-        this.group.add(this.makeProp(0.04, 1.4, steps * 0.32, new THREE.Vector3(x + 0.5, 0.7, zStart + steps * 0.16), 0x0e0806));
+        this.group.add(this.makeProp(0.04, 1.4, steps * 0.32, new THREE.Vector3(x - 0.52, 0.7, zStart + steps * 0.16), 'wood_dark'));
+        this.group.add(this.makeProp(0.04, 1.4, steps * 0.32, new THREE.Vector3(x + 0.52, 0.7, zStart + steps * 0.16), 'wood_dark'));
       }
     }
     // top landing
-    this.group.add(this.makeProp(1.0, 0.05, 0.4, new THREE.Vector3(x, steps * 0.2, zStart + steps * 0.32 + 0.05), 0x1d1511));
+    this.group.add(this.makeProp(1.0, 0.05, 0.4, new THREE.Vector3(x, steps * 0.2, zStart + steps * 0.32 + 0.05), 'wood_dark'));
     // doorway void — pure black plane sunk into the back wall
     this.group.add(this.makeProp(0.9, 1.6, 0.02, new THREE.Vector3(x, steps * 0.2 + 0.85, zStart + steps * 0.32 + 0.25), 0x010101));
     // door frame (L/R posts + lintel)
-    this.group.add(this.makeProp(0.08, 1.7, 0.08, new THREE.Vector3(x - 0.48, steps * 0.2 + 0.85, zStart + steps * 0.32 + 0.24), 0x110a06));
-    this.group.add(this.makeProp(0.08, 1.7, 0.08, new THREE.Vector3(x + 0.48, steps * 0.2 + 0.85, zStart + steps * 0.32 + 0.24), 0x110a06));
-    this.group.add(this.makeProp(1.04, 0.1, 0.08, new THREE.Vector3(x, steps * 0.2 + 1.65, zStart + steps * 0.32 + 0.24), 0x110a06));
+    this.group.add(this.makeProp(0.08, 1.7, 0.08, new THREE.Vector3(x - 0.48, steps * 0.2 + 0.85, zStart + steps * 0.32 + 0.24), 'wood_dark'));
+    this.group.add(this.makeProp(0.08, 1.7, 0.08, new THREE.Vector3(x + 0.48, steps * 0.2 + 0.85, zStart + steps * 0.32 + 0.24), 'wood_dark'));
+    this.group.add(this.makeProp(1.04, 0.1, 0.08, new THREE.Vector3(x, steps * 0.2 + 1.65, zStart + steps * 0.32 + 0.24), 'wood_dark'));
   }
 
-  private makeWall(w: number, h: number, p: THREE.Vector3, r: THREE.Euler, color: number): THREE.Mesh {
-    const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(w, h),
-      new THREE.MeshLambertMaterial({ color, flatShading: true, side: THREE.FrontSide }),
-    );
+  private makeWall(w: number, h: number, p: THREE.Vector3, r: THREE.Euler, appearance: number | TextureType): THREE.Mesh {
+    const mat = typeof appearance === 'string'
+      ? new THREE.MeshLambertMaterial({ map: getTexture(appearance), flatShading: true, side: THREE.FrontSide })
+      : new THREE.MeshLambertMaterial({ color: appearance, flatShading: true, side: THREE.FrontSide });
+    applyPS1Jitter(mat);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
     mesh.position.copy(p);
     mesh.rotation.copy(r);
     return mesh;
   }
 
-  private makeProp(w: number, h: number, d: number, p: THREE.Vector3, color: number): THREE.Mesh {
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(w, h, d),
-      new THREE.MeshLambertMaterial({ color, flatShading: true }),
-    );
+  private makeProp(w: number, h: number, d: number, p: THREE.Vector3, appearance: number | TextureType): THREE.Mesh {
+    const mat = typeof appearance === 'string'
+      ? new THREE.MeshLambertMaterial({ map: getTexture(appearance), flatShading: true })
+      : new THREE.MeshLambertMaterial({ color: appearance, flatShading: true });
+    applyPS1Jitter(mat);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
     mesh.position.copy(p);
     return mesh;
   }
