@@ -12,11 +12,26 @@ export type BluetoothHrStatus =
   | 'disconnected'
   | 'error';
 
+// Connection-health thresholds, applied to "age of last real sample".
+// - `fresh`: a sample arrived within the last FRESH_MS → rock-solid live.
+// - `laggy`: between FRESH_MS and STALE_MS → signal is wavering; UI warns.
+// - `stale`: beyond STALE_MS → held value is old, UI dims heavily.
+// We never blank the number — once we have any sample, we show it forever.
+const FRESH_MS = 3_000;
+const STALE_MS = 10_000;
+
+export type HrSignalQuality = 'none' | 'fresh' | 'laggy' | 'stale';
+
 export class BluetoothHrClient {
   private device: BluetoothDevice | null = null;
   private characteristic: BluetoothRemoteGATTCharacteristic | null = null;
   private currentBpm = 0;
   private lastSampleAt = 0;
+
+  // Last raw BPM we ever saw — held forever once set, so brief dropouts
+  // don't blank the UI. Only reset on explicit disconnect().
+  private heldBpm = 0;
+  private hasEverSampled = false;
 
   onBpm: ((bpm: number) => void) | null = null;
   onStatus: ((status: BluetoothHrStatus, detail?: string) => void) | null = null;
@@ -32,6 +47,25 @@ export class BluetoothHrClient {
   // True if we got a sample within the last ~5s; useful for UI staleness.
   get isLive(): boolean {
     return this.currentBpm > 0 && Date.now() - this.lastSampleAt < 5000;
+  }
+
+  // Display BPM: last raw value we received. Returns 0 until the first
+  // real sample (HUD stays blank pre-pair). After that, the value is held
+  // forever — newer samples overwrite it, no decay or smoothing.
+  get displayBpm(): number {
+    if (!this.hasEverSampled) return 0;
+    return this.heldBpm;
+  }
+
+  // Signal quality derived from age of last real sample. The UI uses this
+  // to dim / tint the BPM readout when the connection weakens without
+  // actually hiding the last known value.
+  get signalQuality(): HrSignalQuality {
+    if (!this.hasEverSampled) return 'none';
+    const age = Date.now() - this.lastSampleAt;
+    if (age < FRESH_MS) return 'fresh';
+    if (age < STALE_MS) return 'laggy';
+    return 'stale';
   }
 
   async connect(): Promise<void> {
@@ -87,7 +121,10 @@ export class BluetoothHrClient {
       }
       this.device = null;
     }
+    // Explicit user-initiated unpair — wipe state so the UI blanks out.
     this.currentBpm = 0;
+    this.heldBpm = 0;
+    this.hasEverSampled = false;
     this.emitStatus('disconnected');
   }
 
@@ -106,13 +143,16 @@ export class BluetoothHrClient {
     const bpm = this.parseHeartRate(target.value);
     if (bpm > 0 && bpm < 250) {
       this.currentBpm = bpm;
+      this.heldBpm = bpm;
+      this.hasEverSampled = true;
       this.lastSampleAt = Date.now();
       this.onBpm?.(bpm);
     }
   };
 
   private onDisconnected = (): void => {
-    this.currentBpm = 0;
+    // Don't zero `currentBpm` — `displayBpm` keeps the last held value on
+    // screen so the UI doesn't flash to 0 during a brief reconnect.
     this.emitStatus('disconnected', this.device?.name);
   };
 

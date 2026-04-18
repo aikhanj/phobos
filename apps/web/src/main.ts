@@ -123,7 +123,9 @@ async function main() {
     faceEmotion.tick();
 
     // Establish baseline HR on first live sample, then slow EMA.
-    const bpm = hrClient.isLive ? hrClient.bpm : 0;
+    // Use displayBpm so the HUD holds the last reading through BLE dropouts
+    // instead of blanking; signalQuality communicates connection weakness.
+    const bpm = hrClient.displayBpm;
     if (bpm > 0) {
       if (baselineBpm === 0) baselineBpm = bpm;
       else baselineBpm = baselineBpm * 0.985 + bpm * 0.015;
@@ -137,7 +139,7 @@ async function main() {
     });
 
     cornerBox.updateFearScore(state.fearScore);
-    cornerBox.updateBPM(state.bpm);
+    cornerBox.updateBPM(state.bpm, hrClient.signalQuality);
 
     entityManager?.onBiosignal(state);
   };
@@ -1020,7 +1022,7 @@ async function main() {
       entityManager.triggerSpike({
         score,
         delta: 0.35,
-        bpm: 88 + Math.floor(Math.random() * 30),
+        bpm: hrClient.isLive ? hrClient.bpm : 0,
         timestamp: Date.now(),
       });
     }

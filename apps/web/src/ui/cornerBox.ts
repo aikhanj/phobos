@@ -166,8 +166,30 @@ export class CornerBox {
     this.fearBar.style.width = `${clamped * 100}%`;
   }
 
-  updateBPM(bpm: number): void {
+  // quality: 'fresh' live, 'laggy' wavering, 'stale' held-but-old, 'none' not yet paired.
+  // BPM never blanks once we've seen a sample — we just dim/tint the number when
+  // data ages, so the reader can see connection weakening without losing the value.
+  updateBPM(bpm: number, quality: 'none' | 'fresh' | 'laggy' | 'stale' = 'fresh'): void {
     this.bpmValue.textContent = bpm > 0 ? String(Math.round(bpm)) : '--';
+    switch (quality) {
+      case 'fresh':
+        this.bpmValue.style.color = '#ff4444';
+        this.bpmValue.style.opacity = '1';
+        break;
+      case 'laggy':
+        this.bpmValue.style.color = '#cc7722';
+        this.bpmValue.style.opacity = '0.8';
+        break;
+      case 'stale':
+        this.bpmValue.style.color = '#777777';
+        this.bpmValue.style.opacity = '0.55';
+        break;
+      case 'none':
+      default:
+        this.bpmValue.style.color = '#ff4444';
+        this.bpmValue.style.opacity = '1';
+        break;
+    }
   }
 
   appendLog(entry: AgentLogEntry): void {
