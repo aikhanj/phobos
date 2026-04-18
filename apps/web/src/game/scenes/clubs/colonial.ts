@@ -170,6 +170,17 @@ export class ColonialInterior implements GameScene {
   colliders(): AABB[] { return this.bounds; }
   triggers(): Trigger[] { return this.triggerBoxes; }
 
+  /** Obstacle boxes the Colonial stalker must route around (dining table only). */
+  getStalkerAvoidance(): AABB[] {
+    // Dining table — centered at origin, length 10, width 1.4, height 1.4.
+    return [{ min: [-5, 0, -0.7], max: [5, 1.4, 0.7] }];
+  }
+
+  /** True once the player has collected the laptop; scene stalker escalates on change. */
+  isPickupCollected(): boolean {
+    return this.pickupCollected;
+  }
+
   interactables(): Interactable[] {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const scene = this;

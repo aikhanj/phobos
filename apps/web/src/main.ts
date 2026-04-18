@@ -34,7 +34,7 @@ import {
 import { FearAudioController } from './audio/fearAudioController';
 import { WebcamGhost, type GhostFlashOptions } from './horror/webcamGhost';
 import { RevealSequence } from './horror/revealSequence';
-import { EntityManager, PhobosEntity } from './game/entities';
+import { EntityManager, PhobosEntity, ColonialStalker } from './game/entities';
 import { PhobosDirector } from './agents/phobosDirector';
 import { AudioDirector } from './agents/audioDirector';
 import { NoteOverlay } from './ui/noteOverlay';
@@ -90,6 +90,7 @@ async function main() {
   let webcamGhost: WebcamGhost | null = null;
   let entityManager: EntityManager | null = null;
   let creatureVoice: CreatureVoice | null = null;
+  let colonialStalker: ColonialStalker | null = null;
   const voiceProxyUrl = (import.meta.env.VITE_VOICE_PROXY_URL as string) || 'http://localhost:3001';
   const defaultVoiceId = import.meta.env.VITE_ELEVEN_DEMO_VOICE_ID as string | undefined;
 
@@ -115,6 +116,7 @@ async function main() {
       );
     }
     entityManager?.update(dt);
+    colonialStalker?.update(dt);
   };
 
   // Biosignal tick (every 500ms): run face-api inference, fuse with HR, push
@@ -140,6 +142,12 @@ async function main() {
 
     cornerBox.updateFearScore(state.fearScore);
     cornerBox.updateBPM(state.bpm, hrClient.signalQuality);
+
+    // Dynamic CRT: grain + vignette intensify with fear. Baseline comes from
+    // the scene's atmosphere, fear layers on top — picture disintegrates as
+    // the player does.
+    engine.setGrain(sceneGrainBase + state.fearScore * 0.10);
+    engine.setVignette(Math.max(0.38, sceneVignetteBase - state.fearScore * 0.18));
 
     entityManager?.onBiosignal(state);
   };
@@ -270,36 +278,28 @@ async function main() {
     log('system', summary);
   };
 
+  // Per-scene base values for CRT grain + vignette. The biosignal tick lerps
+  // from these baselines upward as fear rises so the picture disintegrates
+  // with the player's state instead of staying flat.
+  let sceneGrainBase = 0.07;
+  let sceneVignetteBase = 0.62;
+
   // Swap ambient profile + vignette whenever a scene loads.
   engine.onSceneLoaded = (scene) => {
     if (scene.name === 'basement' || scene.name === 'bedroom' || scene.name === 'attic') {
       audio.setScene(scene.name);
       devHud.setStatus(`SCENE · ${scene.name}`);
     }
-    // Per-scene vignette + grain
+    // Per-scene vignette + grain baselines (fear-driven modulation layered on top).
     switch (scene.name) {
-      case 'campus':
-        engine.setVignette(0.78);
-        engine.setGrain(0.04);
-        break;
-      case 'basement':
-        engine.setVignette(0.68);
-        engine.setGrain(0.07);
-        break;
-      case 'bedroom':
-        engine.setVignette(0.65);
-        engine.setGrain(0.08);
-        break;
-      case 'attic':
-        engine.setVignette(0.55);
-        engine.setGrain(0.10);
-        break;
-      default:
-        // Club interiors — moderate vignette
-        engine.setVignette(0.62);
-        engine.setGrain(0.07);
-        break;
+      case 'campus':     sceneVignetteBase = 0.78; sceneGrainBase = 0.04; break;
+      case 'basement':   sceneVignetteBase = 0.68; sceneGrainBase = 0.07; break;
+      case 'bedroom':    sceneVignetteBase = 0.65; sceneGrainBase = 0.08; break;
+      case 'attic':      sceneVignetteBase = 0.55; sceneGrainBase = 0.10; break;
+      default:           sceneVignetteBase = 0.62; sceneGrainBase = 0.07; break;
     }
+    engine.setVignette(sceneVignetteBase);
+    engine.setGrain(sceneGrainBase);
   };
 
   // ── scene beat-sheet timelines ──
@@ -417,7 +417,14 @@ async function main() {
     }
     player.setInputEnabled(false);
     // Save the player's street position + facing so we can restore on exit.
-    savedCampusPos.copy(engine.camera.position);
+    // Offset 1.5m backward along facing so we don't land inside the door's
+    // entry trigger (which would instantly re-enter the club on exit).
+    const _exitFwd = new THREE.Vector3();
+    engine.camera.getWorldDirection(_exitFwd);
+    _exitFwd.y = 0;
+    if (_exitFwd.lengthSq() < 1e-6) _exitFwd.set(0, 0, -1);
+    _exitFwd.normalize();
+    savedCampusPos.copy(engine.camera.position).addScaledVector(_exitFwd, -1.5);
     savedCampusQuat.copy(engine.camera.quaternion);
     clubsVisited++;
     log('system', `entering ${CLUB_LABEL[id]}.`);
@@ -431,6 +438,20 @@ async function main() {
     await fade.fadeFromBlack(700);
     player.setInputEnabled(true);
     entityManager?.resetGazeState();
+
+    // Colonial-specific scene stalker: follows the player through the
+    // dining room, LLM-authored SFX on fear spikes, reanchors after vanish.
+    if (id === 'colonial' && entityManager) {
+      colonialStalker = new ColonialStalker({
+        em: entityManager,
+        scene: room as ColonialInterior,
+        camera: engine.camera,
+        apiKey: openaiKey,
+        log,
+      });
+      colonialStalker.start();
+    }
+
     runClubBeats(id);
   };
 
@@ -438,6 +459,8 @@ async function main() {
     player.setInputEnabled(false);
     log('system', 'back to prospect ave.');
     await fade.fadeToBlack(500);
+    colonialStalker?.stop();
+    colonialStalker = null;
     loadCampus(true);
     await new Promise((r) => setTimeout(r, 150));
     await fade.fadeFromBlack(700);

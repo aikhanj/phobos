@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { BiosignalState, EntityVisibility, FearSpike } from '@phobos/types';
+import type { AABB, BiosignalState, EntityVisibility, FearSpike } from '@phobos/types';
 import { PhobosEntity } from './phobosEntity';
 import { EphemeralFigure } from './ephemeralFigure';
 
@@ -62,6 +62,19 @@ export class EntityManager {
   private gazeReactedThisCycle = false;
   /** When true, Phobos stays at peripheral between scenes instead of hiding. */
   persistent = false;
+  /** If false, STALK drift is paused. Scene-scoped stalkers (e.g. Colonial) can take over. */
+  stalkingEnabled = true;
+  /** XZ-projected AABBs the stalker routes around during STALK drift. */
+  avoidanceBoxes: AABB[] = [];
+  /** Fired after a stare-punish vanish completes. Scene stalkers use this to reanchor. */
+  onVanish?: () => void;
+  /**
+   * If set, `triggerSpike` delegates the audio-generating react call to this
+   * handler instead of `phobos.reactToSpike`. Positioning + visibility +
+   * fade-out still happen here. Scene stalkers use this to inject
+   * LLM-authored SFX prompts while reusing the rest of the spike machinery.
+   */
+  spikeHandler?: (spike: FearSpike) => Promise<void>;
 
   constructor(opts: EntityManagerOptions, tuning: Partial<EntityManagerTuning> = {}) {
     this.scene = opts.scene;
@@ -123,7 +136,10 @@ export class EntityManager {
     this.phobos.setPosition(pos);
     this.phobos.setVisibility(visibilityForScore(spike.score));
 
-    void this.phobos.reactToSpike(spike).then(() => {
+    const react = this.spikeHandler
+      ? this.spikeHandler(spike)
+      : this.phobos.reactToSpike(spike);
+    void react.then(() => {
       // Fade back after the beat so she doesn't linger visible.
       setTimeout(() => {
         if (this.phobos.getVisibility() !== 'hidden') {
@@ -201,22 +217,34 @@ export class EntityManager {
         this.gazeReactedThisCycle = true;
         this.log?.('creature_director', 'it sees you looking.');
         void this.phobos.reactToSpike({ score: 0.5, delta: 0.2, bpm: 80, timestamp: Date.now() });
-        setTimeout(() => this.phobos.setVisibility('hidden'), 800);
+        setTimeout(() => {
+          this.phobos.setVisibility('hidden');
+          // Give the opacity lerp a beat to finish, then let the scene stalker reanchor.
+          setTimeout(() => this.onVanish?.(), 900);
+        }, 800);
       }
     } else {
       // STALK — player not looking. Drift toward them.
       this.gazeOnPhobosAccum = 0;
 
-      if (dist > 1.5) {
+      if (this.stalkingEnabled && dist > 1.5) {
         const speed = 0.8; // m/s — slow, deliberate
         const step = speed * dt;
         const nx = -dx / dist; // normalized direction toward player
         const nz = -dz / dist;
-        this.phobos.setPosition({
-          x: phobosPos.x + nx * step,
-          y: 0,
-          z: phobosPos.z + nz * step,
-        });
+        const nextX = phobosPos.x + nx * step;
+        const nextZ = phobosPos.z + nz * step;
+        // Route around obstacle AABBs (e.g. the Colonial dining table).
+        // If forward step enters a box, try a perpendicular slide; else hold.
+        if (!this.blocksAt(nextX, nextZ)) {
+          this.phobos.setPosition({ x: nextX, y: 0, z: nextZ });
+        } else {
+          const perpX = phobosPos.x + -nz * step;
+          const perpZ = phobosPos.z + nx * step;
+          if (!this.blocksAt(perpX, perpZ)) {
+            this.phobos.setPosition({ x: perpX, y: 0, z: perpZ });
+          }
+        }
       }
 
       // Upgrade visibility as it gets closer
@@ -284,6 +312,18 @@ export class EntityManager {
       y: 0,
       z: this.camera.position.z + dir.z * radius,
     };
+  }
+
+  /** XZ point-in-AABB test against scene obstacle boxes. */
+  private blocksAt(x: number, z: number): boolean {
+    const pad = 0.35; // figure half-width plus slop
+    for (const b of this.avoidanceBoxes) {
+      if (x >= b.min[0] - pad && x <= b.max[0] + pad &&
+          z >= b.min[2] - pad && z <= b.max[2] + pad) {
+        return true;
+      }
+    }
+    return false;
   }
 
   dispose(): void {
