@@ -1,3 +1,5 @@
+import 'dotenv/config';
+
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { stream } from 'hono/streaming';
@@ -24,14 +26,14 @@ app.post('/tts', async (c) => {
     return c.json({ error: 'ELEVENLABS_API_KEY not set on proxy' }, 503);
   }
 
-  let body: { text?: unknown; voiceId?: unknown; modelId?: unknown; sampleRate?: unknown };
+  let body: { text?: unknown; voiceId?: unknown; modelId?: unknown; sampleRate?: unknown; voiceSettings?: unknown };
   try {
     body = await c.req.json();
   } catch {
     return c.json({ error: 'invalid json body' }, 400);
   }
 
-  const { text, voiceId, modelId, sampleRate } = body;
+  const { text, voiceId, modelId, sampleRate, voiceSettings } = body;
   if (typeof text !== 'string' || !text.trim()) {
     return c.json({ error: 'text required' }, 400);
   }
@@ -40,8 +42,11 @@ app.post('/tts', async (c) => {
   }
   const sr = typeof sampleRate === 'number' ? sampleRate : 22050;
   const model = typeof modelId === 'string' ? modelId : undefined;
+  const vs = voiceSettings && typeof voiceSettings === 'object'
+    ? (voiceSettings as import('./eleven').VoiceSettings)
+    : undefined;
 
-  const upstream = await streamTTS({ text, voiceId, modelId: model, sampleRate: sr });
+  const upstream = await streamTTS({ text, voiceId, modelId: model, sampleRate: sr, voiceSettings: vs });
   if (!upstream.ok || !upstream.body) {
     const err = await upstream.text().catch(() => '');
     return c.json({ error: `elevenlabs ${upstream.status}: ${err.slice(0, 300)}` }, 502);
@@ -111,8 +116,19 @@ app.post('/sfx', async (c) => {
   });
 });
 
-serve({ fetch: app.fetch, port: env.PORT }, (info) => {
+const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
   console.log(`[voice-proxy] listening on :${info.port}`);
   console.log(`[voice-proxy] allowed origin: ${env.ALLOWED_ORIGIN}`);
   console.log(`[voice-proxy] api key present: ${hasApiKey()}`);
+});
+
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(
+      `[voice-proxy] port ${env.PORT} is already in use (another voice-proxy or app). Stop it or set PORT in .env.`,
+    );
+  } else {
+    console.error('[voice-proxy] failed to listen:', err);
+  }
+  process.exit(1);
 });

@@ -19,12 +19,18 @@ import {
   type VoiceEngine,
   type FearBucket,
 } from '@phobos/voice';
-import { WebcamGhost } from './horror/webcamGhost';
+import { FearAudioController } from './audio/fearAudioController';
+import { WebcamGhost, type GhostFlashOptions } from './horror/webcamGhost';
+import { RevealSequence } from './horror/revealSequence';
 import { EntityManager, PhobosEntity } from './game/entities';
-import type { AgentLogEntry } from '@phobos/types';
+import { PhobosDirector } from './agents/phobosDirector';
+import { AudioDirector } from './agents/audioDirector';
+import { NoteOverlay } from './ui/noteOverlay';
+import { CalibrationOverlay } from './ui/calibrationOverlay';
 import { FaceEmotionDetector } from './biosignals/faceEmotion';
 import { FearScoreCalculator } from './biosignals/fearScore';
 import { BluetoothHrClient } from './biosignals/bluetoothHr';
+import type { AgentLogEntry, BiosignalState, NoteId, PhobosTickContext, WebcamGlitchType } from '@phobos/types';
 
 async function main() {
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -38,6 +44,31 @@ async function main() {
   const devHud = new DevHud();
 
   player.setColliderProvider(engine.getColliders);
+
+  // ── Audio controllers ──
+  const fearAudio = new FearAudioController(audio);
+  const audioDirector = new AudioDirector();
+
+  // ── Phobos LLM director ──
+  const openaiKey = (import.meta.env.VITE_OPENAI_API_KEY as string) || '';
+  const phobos = new PhobosDirector(openaiKey);
+  const noteOverlay = new NoteOverlay();
+  let sessionStartTime = 0;
+  let currentSceneName: 'basement' | 'bedroom' | 'attic' = 'basement';
+  let sceneStartTime = 0;
+  let lastFearScore = 0;
+  let lastBpm = 0;
+
+  // Note interaction handler — shows overlay, tracks reads
+  const handleNoteInteract = (noteId: NoteId): void => {
+    player.setInputEnabled(false);
+    noteOverlay.show(noteId, () => {
+      player.setInputEnabled(true);
+    });
+  };
+  const handleNoteRead = (noteId: NoteId): void => {
+    phobos.onNoteRead(noteId);
+  };
 
   // Voice engine wiring (lazy — audio context is created at audio.init()).
   let voice: VoiceEngine | null = null;
@@ -118,8 +149,21 @@ async function main() {
     cornerBox.appendLog({ source, message, timestamp: Date.now() });
   };
 
+  // ── map webcam glitch types to WebcamGhost flash options ──
+  const mapGlitchToFlash = (effect: WebcamGlitchType, intensity: number, _durationS: number): GhostFlashOptions => {
+    const scale = Math.max(0.3, Math.min(1, intensity));
+    switch (effect) {
+      case 'stutter': return { buildupMs: 100, snapMs: Math.round(300 * scale), fadeMs: 100 };
+      case 'distort': return { buildupMs: Math.round(800 * scale), snapMs: Math.round(400 * scale), fadeMs: 200 };
+      case 'face_warp': return { buildupMs: 200, snapMs: Math.round(600 * scale), fadeMs: 300 };
+      case 'delay': return { buildupMs: Math.round(500 * scale), snapMs: 200, fadeMs: 400 };
+    }
+  };
+
   // ── route fired events to audio + log ──
   engine.onEventFired = (ev) => {
+    // Track all events for Phobos's scare history
+    phobos.onEventFired(ev);
     let summary: string;
     switch (ev.kind) {
       case 'flicker':
@@ -161,6 +205,49 @@ async function main() {
       case 'lock': summary = `lock:${ev.propId}`; break;
       case 'fog_creep': summary = `fog→${ev.targetFar.toFixed(1)}`; break;
       case 'transition': summary = `transition:${ev.to}`; break;
+      case 'note_reveal':
+        summary = `note:${ev.noteId}`;
+        break;
+      case 'crt_message':
+        summary = `crt:"${ev.text.slice(0, 20)}"`;
+        break;
+      case 'log_message':
+        cornerBox.appendLog({
+          source: (ev.source as AgentLogEntry['source']) || 'phobos',
+          message: ev.text,
+          timestamp: Date.now(),
+        });
+        summary = `log:${ev.text.slice(0, 30)}`;
+        break;
+      case 'webcam_glitch':
+        if (webcamGhost) {
+          webcamGhost.flash(mapGlitchToFlash(ev.effect, ev.intensity, ev.durationS)).catch(() => {});
+        }
+        summary = `glitch:${ev.effect}`;
+        break;
+      case 'jumpscare':
+        if (ev.type === 'mirror_flash') {
+          engine.eventBus.fire({ kind: 'sound', asset: 'creak_door', volume: 1.0 });
+          engine.eventBus.fire({ kind: 'mirror_swap', variant: 'extra_figure' });
+          fade.blink(100);
+          setTimeout(() => {
+            engine.eventBus.fire({ kind: 'mirror_swap', variant: 'empty' });
+          }, 300);
+        } else if (ev.type === 'static_burst') {
+          engine.eventBus.fire({ kind: 'sound', asset: 'glitch', volume: 0.9 });
+          engine.eventBus.fire({ kind: 'flicker', duration: 0.4, pattern: 'blackout' });
+          fade.blink(150);
+        }
+        summary = `jumpscare:${ev.type}`;
+        break;
+      case 'anti_silence':
+        audio.antiSilence(ev.duration);
+        summary = `anti_silence:${ev.duration}s`;
+        break;
+      case 'reveal_sequence':
+        summary = 'REVEAL';
+        void endDemo();
+        break;
       default: { const _exhaustive: never = ev; summary = String(_exhaustive); }
     }
     log('system', summary);
@@ -185,18 +272,27 @@ async function main() {
 
   // ── scene factories (defined forward, swap in the transitions below) ──
   const loadBasement = (): void => {
+    currentSceneName = 'basement';
+    sceneStartTime = performance.now();
+    phobos.onSceneChange('basement');
     const basement = new Basement({
       onTransitionToBedroom: () => transitionToBedroom(),
+      onNoteRead: handleNoteRead,
+      onNoteInteract: handleNoteInteract,
     });
     engine.loadScene(basement);
     engine.camera.position.copy(basement.spawnPoint);
-    // clear queued agent lines
-    runBasementOpening();
+    runBasementOpening(basement);
   };
 
   const loadBedroom = (): void => {
+    currentSceneName = 'bedroom';
+    sceneStartTime = performance.now();
+    phobos.onSceneChange('bedroom');
     const bedroom = new Bedroom({
       onTransitionToAttic: () => transitionToAttic(),
+      onNoteRead: handleNoteRead,
+      onNoteInteract: handleNoteInteract,
     });
     engine.loadScene(bedroom);
     engine.camera.position.copy(bedroom.spawnPoint);
@@ -204,8 +300,13 @@ async function main() {
   };
 
   const loadAttic = (): void => {
+    currentSceneName = 'attic';
+    sceneStartTime = performance.now();
+    phobos.onSceneChange('attic');
     const attic = new Attic({
       onDemoEnd: () => endDemo(),
+      onNoteRead: handleNoteRead,
+      onNoteInteract: handleNoteInteract,
     });
     engine.loadScene(attic);
     engine.camera.position.copy(attic.spawnPoint);
@@ -233,51 +334,242 @@ async function main() {
     player.setInputEnabled(true);
   };
 
+  let revealRunning = false;
   const endDemo = async (): Promise<void> => {
+    if (revealRunning) return;
+    revealRunning = true;
     log('system', 'end.');
     player.setInputEnabled(false);
-    await fade.fadeToBlack(600);
-    // Intentionally hold black — the demo ends on the inhale.
-    fade.holdBlack();
+
+    const reveal = new RevealSequence({
+      cornerBox,
+      fade,
+      audio,
+      webcamGhost,
+      voice,
+      defaultVoiceId,
+      sessionStartTime,
+      lastFearScore,
+      lastBpm,
+    });
+    await reveal.run();
   };
 
   // ── beat sheets ──
 
   /**
-   * Basement opening = calibration ritual + first-scare cue. The player
-   * cannot move for the first ~30s. Authored lines speak as Phobos.
+   * Basement opening = interactive calibration ritual. The player cannot
+   * walk but CAN look around with the mouse. Calibration advances through
+   * gaze-reactive phases — the room responds to where they look.
+   *
+   * Phase 0: Boot       (~3.5s fixed) — CRT boots, candles light one by one
+   * Phase 1: Gaze       (1.5s on target or 8s timeout) — "look at the camera"
+   * Phase 2: Stillness  (2s still or 6s timeout) — "hold still", fake BPM ramps
+   * Phase 3: Scare test (5s fixed) — "don't look away", hard flicker + sound
+   * Phase 4: Complete   (3s fixed) — flare, voice, unlock
    */
-  function runBasementOpening(): void {
+  function runBasementOpening(basement: Basement): void {
     const t = swapTimeline(new Timeline());
     player.setInputEnabled(false);
-    devHud.startCountdown(30);
 
-    t.schedule(400, () => log('system', 'baseline capture. hold.'));
-    t.schedule(3500, () => log('audio_director', 'they are here.'));
-    t.schedule(7000, () => {
-      log('creature_director', 'faces. eyes. catalogued.');
-      engine.eventBus.fire({ kind: 'flicker', duration: 0.3, pattern: 'subtle' });
-    });
-    t.schedule(14000, () => log('pacing_director', 'halfway. do not release yet.'));
-    t.schedule(18000, () => {
-      log('audio_director', 'a pulse.');
-      engine.eventBus.fire({ kind: 'breath', intensity: 0.5 });
-    });
-    t.schedule(24000, () => {
-      log('creature_director', 'almost.');
-      engine.eventBus.fire({ kind: 'flicker', duration: 0.6, pattern: 'hard' });
-    });
+    const calibOverlay = new CalibrationOverlay();
+    const tripodPos = new THREE.Vector3(0, 1.3, -1.5);
+    const _gazeDir = new THREE.Vector3();
+    const _toTarget = new THREE.Vector3();
 
-    // Calibration complete.
-    t.schedule(30000, () => {
-      log('system', 'good.');
-      speakAs('low', 'good');
-      player.setInputEnabled(true);
-      devHud.stopCountdown();
-      devHud.setStatus('SCENE · basement · WASD + [E] ENABLED');
-      devHud.flash('>> WASD · MOUSE · [E] <<', 2800);
-      runBasementExploration();
+    let phase = 0;
+    let phaseStart = performance.now();
+    let gazeOnTarget = 0;
+    let stillAccum = 0;
+    const prevLook = new THREE.Vector3();
+    engine.camera.getWorldDirection(prevLook);
+    let scareFired = false;
+    let reactionLogged = false;
+    let fakeBpm = 0;
+    let pollId: number | null = null;
+
+    const phaseElapsed = (): number => (performance.now() - phaseStart) / 1000;
+
+    const isLookingAt = (target: THREE.Vector3, thresholdDeg = 15): boolean => {
+      engine.camera.getWorldDirection(_gazeDir);
+      _toTarget.subVectors(target, engine.camera.position).normalize();
+      const dot = _gazeDir.dot(_toTarget);
+      return Math.acos(Math.min(1, Math.max(-1, dot))) < thresholdDeg * Math.PI / 180;
+    };
+
+    const getLookAngularSpeed = (): number => {
+      engine.camera.getWorldDirection(_gazeDir);
+      const dot = Math.min(1, Math.max(-1, _gazeDir.dot(prevLook)));
+      prevLook.copy(_gazeDir);
+      return Math.acos(dot) / 0.1;
+    };
+
+    const stopPoll = (): void => {
+      if (pollId !== null) { clearInterval(pollId); pollId = null; }
+    };
+
+    const enterPhase = (p: number): void => {
+      phase = p;
+      phaseStart = performance.now();
+      gazeOnTarget = 0;
+      stillAccum = 0;
+
+      switch (p) {
+        case 1:
+          calibOverlay.show('look at the camera');
+          log('creature_director', 'locate the subject.');
+          devHud.setStatus('CALIBRATION · GAZE · WASD LOCKED');
+          break;
+
+        case 2:
+          basement.lightCandle(2);
+          calibOverlay.show('hold still');
+          log('system', 'eye contact. locked.');
+          engine.eventBus.fire({ kind: 'crt_message', text: 'FACE DETECTED', durationS: 5 });
+          engine.eventBus.fire({ kind: 'sound', asset: 'heartbeat', volume: 0.3 });
+          log('audio_director', 'reading pulse...');
+          devHud.setStatus('CALIBRATION · PULSE · WASD LOCKED');
+          break;
+
+        case 3:
+          basement.lightCandle(3);
+          basement.setOverheadBase(0.35);
+          calibOverlay.show("don't look away");
+          log('system', `pulse: ${Math.round(fakeBpm)} bpm. stable.`);
+          cornerBox.updateFearScore(0.05);
+          log('pacing_director', 'testing.');
+          devHud.setStatus('CALIBRATION · HOLD · WASD LOCKED');
+          break;
+
+        case 4:
+          stopPoll();
+          calibOverlay.setProgress(1);
+          calibOverlay.show('calibration complete');
+          basement.flareCandles();
+          basement.setOverheadBase(0.5);
+          engine.eventBus.fire({ kind: 'crt_message', text: 'SUBJECT PROFILED', durationS: 4 });
+          log('system', 'good.');
+          speakAs('low', 'good');
+          cornerBox.updateFearScore(0.08);
+          devHud.setStatus('CALIBRATION · DONE');
+
+          setTimeout(() => {
+            calibOverlay.hide();
+            basement.setCalibrationComplete();
+            player.setInputEnabled(true);
+            devHud.setStatus('SCENE · basement · WASD + [E] ENABLED');
+            devHud.flash('>> WASD · MOUSE · [E] <<', 2800);
+            runBasementExploration();
+            setTimeout(() => calibOverlay.dispose(), 1000);
+          }, 3000);
+          break;
+      }
+    };
+
+    // ── Phase 0: Boot (fixed timeline, ~3.5s) ──
+    devHud.setStatus('CALIBRATION · BOOT · WASD LOCKED');
+
+    t.schedule(200, () => engine.eventBus.fire({ kind: 'crt_message', text: 'PHOBOS v2.1', durationS: 3 }));
+    t.schedule(400, () => log('system', 'initializing...'));
+    t.schedule(1000, () => {
+      basement.lightCandle(0);
+      basement.setOverheadBase(0.15);
     });
+    t.schedule(1800, () => log('system', 'camera feed: active.'));
+    t.schedule(2500, () => {
+      basement.lightCandle(1);
+      basement.setOverheadBase(0.22);
+    });
+    t.schedule(3000, () => engine.eventBus.fire({ kind: 'crt_message', text: 'CALIBRATING...', durationS: 6 }));
+    t.schedule(3500, () => enterPhase(1));
+
+    // ── Gaze poll (100ms) — drives phases 1-3 reactively ──
+    pollId = window.setInterval(() => {
+      const dt = 0.1;
+      let progress = 0;
+
+      switch (phase) {
+        case 0:
+          progress = Math.min(0.12, phaseElapsed() / 3.5 * 0.12);
+          break;
+
+        case 1: {
+          const looking = isLookingAt(tripodPos, 18);
+          if (looking) {
+            gazeOnTarget += dt;
+          } else {
+            gazeOnTarget = Math.max(0, gazeOnTarget - dt * 0.3);
+          }
+          progress = 0.12 + (gazeOnTarget / 1.5) * 0.22;
+
+          if (gazeOnTarget >= 1.5) {
+            enterPhase(2);
+          } else if (phaseElapsed() > 8) {
+            log('system', 'manual override. proceeding.');
+            enterPhase(2);
+          }
+          break;
+        }
+
+        case 2: {
+          const angSpeed = getLookAngularSpeed();
+          if (angSpeed < 0.3) {
+            stillAccum += dt;
+          } else {
+            stillAccum = Math.max(0, stillAccum - dt * 0.5);
+          }
+
+          if (fakeBpm < 72) {
+            fakeBpm = Math.min(72, fakeBpm + dt * 20);
+            cornerBox.updateBPM(Math.round(fakeBpm));
+          }
+
+          progress = 0.34 + (stillAccum / 2) * 0.22;
+
+          if (stillAccum >= 2) {
+            enterPhase(3);
+          } else if (phaseElapsed() > 6) {
+            fakeBpm = 72;
+            cornerBox.updateBPM(72);
+            log('system', `pulse: ${Math.round(fakeBpm)} bpm. unstable.`);
+            enterPhase(3);
+          }
+          break;
+        }
+
+        case 3: {
+          progress = 0.56 + Math.min(0.22, phaseElapsed() / 5 * 0.22);
+
+          if (phaseElapsed() > 2 && !scareFired) {
+            scareFired = true;
+            engine.eventBus.fire({ kind: 'flicker', duration: 0.5, pattern: 'hard' });
+            engine.eventBus.fire({ kind: 'breath', intensity: 0.6 });
+            engine.eventBus.fire({ kind: 'sound', asset: 'footstep_behind', volume: 0.9 });
+          }
+
+          if (phaseElapsed() > 2.8 && !reactionLogged) {
+            reactionLogged = true;
+            const looking = isLookingAt(tripodPos, 25);
+            if (!looking) {
+              log('creature_director', 'flinch. catalogued.');
+            } else {
+              log('creature_director', 'no reaction. interesting.');
+            }
+          }
+
+          if (phaseElapsed() >= 5) {
+            enterPhase(4);
+          }
+          break;
+        }
+
+        case 4:
+          progress = 0.78 + Math.min(0.22, phaseElapsed() / 3 * 0.22);
+          break;
+      }
+
+      calibOverlay.setProgress(Math.min(1, progress));
+    }, 100);
   }
 
   /**
@@ -502,7 +794,67 @@ async function main() {
     crosshair.show();
 
     engine.start();
+    sessionStartTime = performance.now();
     log('system', 'phobos initialized.');
+
+    // ── Biosignal tick (every 500ms) — drives fear-reactive audio ──
+    fearAudio.startHeartbeat();
+    engine.onBiosignalTick = () => {
+      const bioState: BiosignalState = {
+        fearScore: lastFearScore,
+        bpm: lastBpm,
+        gazeAversion: 0,
+        flinchCount: 0,
+        timeInScene: (performance.now() - sceneStartTime) / 1000,
+        lookStillness: 0,
+        retreatVelocity: 0,
+        gazeDwellMs: {},
+        timestamp: Date.now(),
+      };
+      fearAudio.update(bioState);
+    };
+
+    // ── Phobos LLM agent tick (every 10s) ──
+    if (phobos.hasApiKey) {
+      log('system', 'phobos director online.');
+      engine.onAgentTick = async () => {
+        if (revealRunning) return;
+        const p = engine.camera.position;
+        engine.camera.getWorldDirection(_fwd);
+        const bioState: BiosignalState = {
+          fearScore: lastFearScore,
+          bpm: lastBpm,
+          gazeAversion: 0,
+          flinchCount: 0,
+          timeInScene: (performance.now() - sceneStartTime) / 1000,
+          lookStillness: 0,
+          retreatVelocity: 0,
+          gazeDwellMs: {},
+          timestamp: Date.now(),
+        };
+        const ctx: PhobosTickContext = {
+          scene: currentSceneName,
+          biosignals: bioState,
+          playerPosition: [p.x, p.y, p.z],
+          playerFacing: [_fwd.x, _fwd.y, _fwd.z],
+          timeInScene: (performance.now() - sceneStartTime) / 1000,
+          totalSessionTime: (performance.now() - sessionStartTime) / 1000,
+        };
+        const plan = await phobos.tick(ctx);
+        if (plan) {
+          engine.eventBus.ingestPlan(plan);
+          log(plan.source, plan.rationale);
+
+          // Feed the audio director with the pacing mood
+          const audioPlan = audioDirector.query(plan.microMood, bioState, currentSceneName);
+          fearAudio.setPhase(audioPlan.microMood);
+          if (audioPlan.events.length > 0) {
+            engine.eventBus.ingestPlan(audioPlan);
+          }
+          log(audioPlan.source, audioPlan.rationale);
+        }
+      };
+    }
 
     // Load first scene & start the ritual.
     loadBasement();

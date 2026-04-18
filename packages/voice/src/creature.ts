@@ -21,6 +21,13 @@ function offset(p: Vec3, dx: number, dz: number, dy = 0): Vec3 {
   return { x: p.x + dx, y: p.y + dy, z: p.z + dz };
 }
 
+const FEAR_BUCKET_LEVELS: Record<FearBucket, number> = {
+  low: 0.15,
+  medium: 0.4,
+  high: 0.7,
+  peak: 0.95,
+};
+
 /**
  * An embodied creature voice. Composes the engine's primitives (speak,
  * playSFX, playBuffer) into audio theater: multi-line whispers with
@@ -72,6 +79,8 @@ export class CreatureVoice {
     const text = textOverride ?? this.bank.pick(this.fearBucket, this.lastLine);
     this.lastLine = text;
     this.bus.duck(duckSeconds);
+    const fearLevel = FEAR_BUCKET_LEVELS[this.fearBucket];
+    this.engine.setHorrorFear(fearLevel);
     const h = this.engine.speak({ text, position: this.position });
     await h.done;
   }

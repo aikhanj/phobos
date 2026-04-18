@@ -78,7 +78,13 @@ export type SoundId =
   | 'breath_low'
   | 'silence_drop'
   | 'glitch'
-  | 'heartbeat';
+  | 'heartbeat'
+  | 'stinger_low'
+  | 'stinger_high'
+  | 'reverse_creak'
+  | 'radio_static'
+  | 'tone_wrong'
+  | 'impact';
 
 /** Named movable/animatable props. Scenes register props. */
 export type PropId =
@@ -89,7 +95,23 @@ export type PropId =
   | 'bedroom_window_figure'
   | 'bedroom_door'
   | 'bedroom_hatch'
-  | 'attic_central_shape';
+  | 'attic_central_shape'
+  | NoteId;
+
+/** Identifiers for the 6 Voss documents scattered through the house. */
+export type NoteId =
+  | 'note_grant_proposal'
+  | 'note_lab_journal'
+  | 'note_private_journal'
+  | 'note_wife_letter'
+  | 'note_final_entry'
+  | 'note_phobos_log';
+
+/** Webcam distortion effect types. */
+export type WebcamGlitchType = 'stutter' | 'distort' | 'face_warp' | 'delay';
+
+/** Coordinated jumpscare types. */
+export type JumpscareType = 'mirror_flash' | 'static_burst';
 
 export type MicroMood = 'descent' | 'hold' | 'release' | 'crescendo';
 
@@ -105,18 +127,25 @@ export type SceneEvent =
   | { kind: 'prop_move'; atSeconds?: number; propId: PropId; to: [number, number, number]; requires?: 'unwatched' }
   | { kind: 'prop_state'; atSeconds?: number; propId: PropId; state: string; param?: number }
   | { kind: 'silence'; atSeconds?: number; duration: number }
+  | { kind: 'anti_silence'; atSeconds?: number; duration: number }
   | { kind: 'breath'; atSeconds?: number; intensity: number }
   | { kind: 'fog_creep'; atSeconds?: number; targetNear: number; targetFar: number; duration: number }
   | { kind: 'mirror_swap'; atSeconds?: number; variant: 'empty' | 'extra_figure' | 'wrong_prop' | 'darker' }
   | { kind: 'transition'; atSeconds?: number; to: 'basement' | 'bedroom' | 'attic' }
   | { kind: 'lock'; atSeconds?: number; propId: PropId }
-  | { kind: 'unlock'; atSeconds?: number; propId: PropId };
+  | { kind: 'unlock'; atSeconds?: number; propId: PropId }
+  | { kind: 'note_reveal'; atSeconds?: number; noteId: NoteId }
+  | { kind: 'crt_message'; atSeconds?: number; text: string; durationS: number }
+  | { kind: 'log_message'; atSeconds?: number; text: string; source: string }
+  | { kind: 'webcam_glitch'; atSeconds?: number; effect: WebcamGlitchType; durationS: number; intensity: number }
+  | { kind: 'jumpscare'; atSeconds?: number; type: JumpscareType; durationS: number }
+  | { kind: 'reveal_sequence'; atSeconds?: number };
 
 export interface DirectorPlan {
   /** Shown verbatim in the corner-box log. Write it in Phobos-voice. */
   rationale: string;
   /** Source label for log coloring. */
-  source: 'scare_director' | 'audio_director' | 'creature_director' | 'pacing_director' | 'system';
+  source: 'scare_director' | 'audio_director' | 'creature_director' | 'pacing_director' | 'system' | 'phobos';
   /** Scheduled events for the next 10s window. */
   events: SceneEvent[];
   /** Narrative posture for this window. Influences ambient light/fog lerp. */
@@ -124,9 +153,28 @@ export interface DirectorPlan {
 }
 
 export interface AgentLogEntry {
-  source: 'scare_director' | 'audio_director' | 'creature_director' | 'pacing_director' | 'system';
+  source: 'scare_director' | 'audio_director' | 'creature_director' | 'pacing_director' | 'system' | 'phobos';
   message: string;
   timestamp: number;
+}
+
+/** Input context assembled each 10s agent tick for the Phobos director. */
+export interface PhobosTickContext {
+  scene: 'basement' | 'bedroom' | 'attic';
+  biosignals: BiosignalState;
+  playerPosition: [number, number, number];
+  playerFacing: [number, number, number];
+  timeInScene: number;
+  totalSessionTime: number;
+}
+
+/** Definition for a discoverable note in the environment. */
+export interface NoteDefinition {
+  id: NoteId;
+  scene: 'basement' | 'bedroom' | 'attic';
+  title: string;
+  content: string;
+  orderInScene: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

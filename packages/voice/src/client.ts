@@ -8,6 +8,12 @@ export interface TTSStreamParams {
   voiceId: string;
   modelId?: string;
   sampleRate?: number;
+  voiceSettings?: {
+    stability?: number;
+    similarity_boost?: number;
+    style?: number;
+    use_speaker_boost?: boolean;
+  };
 }
 
 export interface SFXFetchParams {
@@ -20,10 +26,13 @@ export class VoiceProxyClient {
   constructor(private readonly baseUrl: string) {}
 
   async streamTTS(params: TTSStreamParams): Promise<TTSStreamResult> {
+    const { voiceSettings, ...rest } = params;
+    const payload: Record<string, unknown> = { ...rest };
+    if (voiceSettings) payload.voiceSettings = voiceSettings;
     const res = await fetch(`${this.baseUrl}/tts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
+      body: JSON.stringify(payload),
     });
     if (!res.ok || !res.body) {
       const err = await res.text().catch(() => res.statusText);

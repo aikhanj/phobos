@@ -4,6 +4,13 @@ export interface Vec3 {
   z: number;
 }
 
+export interface VoiceSettings {
+  stability?: number;
+  similarity_boost?: number;
+  style?: number;
+  use_speaker_boost?: boolean;
+}
+
 export interface VoiceOptions {
   voiceId: string;
   text: string;
@@ -12,6 +19,8 @@ export interface VoiceOptions {
   position?: Vec3;
   gain?: number;
   bypassCache?: boolean;
+  voiceSettings?: VoiceSettings;
+  horrorFx?: boolean;
 }
 
 export interface SFXOptions {

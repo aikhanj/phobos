@@ -32,9 +32,12 @@ export class AudioManager {
   private droneOsc1: OscillatorNode | null = null;
   private droneOsc2: OscillatorNode | null = null;
 
+  private lfo: OscillatorNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
   private creakTimer: number | null = null;
   private currentPreset: ScenePreset = 'basement';
+  private fearLevel = 0;
+  private creakRateMultiplier = 1;
 
   async init(): Promise<void> {
     if (this.ctx) return;
@@ -110,13 +113,13 @@ export class AudioManager {
     this.droneOsc2.start();
 
     // Gentle LFO on drone gain — slow swell between 0.6x and 1.4x
-    const lfo = ctx.createOscillator();
-    lfo.type = 'sine';
-    lfo.frequency.value = 0.08;
+    this.lfo = ctx.createOscillator();
+    this.lfo.type = 'sine';
+    this.lfo.frequency.value = 0.08;
     const lfoDepth = ctx.createGain();
     lfoDepth.gain.value = 0.02;
-    lfo.connect(lfoDepth).connect(this.droneGain.gain);
-    lfo.start();
+    this.lfo.connect(lfoDepth).connect(this.droneGain.gain);
+    this.lfo.start();
 
     this.applyPreset('basement', 0);
     this.startCreakScheduler();
@@ -148,13 +151,92 @@ export class AudioManager {
     g.linearRampToValueAtTime(gain, now + rampSec);
   }
 
-  /** Duck to silence for `durationSec`, then restore. */
+  /**
+   * Continuously modulate ambient parameters based on fear level (0-1).
+   * Called from FearAudioController every 500ms.
+   *
+   * All ramps are 500ms so they settle before the next tick.
+   */
+  setFearModulation(fear: number): void {
+    if (!this.ctx) return;
+    this.fearLevel = Math.max(0, Math.min(1, fear));
+    const f = this.fearLevel;
+    const now = this.ctx.currentTime;
+    const end = now + 0.5;
+
+    const base = AMBIENT_PRESETS[this.currentPreset];
+
+    // Drone: 1x→3x gain with fear
+    if (this.droneGain) {
+      const dg = base.droneGain * (1 + f * 2);
+      rampParam(this.droneGain.gain, dg, now, end);
+    }
+    // Drone detune: -7→-40 cents (increasing dissonance)
+    if (this.droneOsc2) {
+      const detune = -7 - f * 33;
+      rampParam(this.droneOsc2.detune, detune, now, end);
+    }
+    // Rumble: 1x→2x
+    if (this.rumbleGain) {
+      rampParam(this.rumbleGain.gain, base.rumbleGain * (1 + f), now, end);
+    }
+    // Hiss: 1x→0.5x (suffocation)
+    if (this.hissGain) {
+      rampParam(this.hissGain.gain, base.hissGain * (1 - f * 0.5), now, end);
+    }
+    // LFO: 0.08→0.3 Hz (anxiety pulse)
+    if (this.lfo) {
+      const lfoHz = 0.08 + f * 0.22;
+      rampParam(this.lfo.frequency, lfoHz, now, end);
+    }
+    // Master: 0.9→0.7 (headroom before stingers)
+    if (this.master) {
+      rampParam(this.master.gain, 0.9 - f * 0.2, now, end);
+    }
+    // Creak rate: 1x→2x faster
+    this.creakRateMultiplier = 1 / (1 + f);
+  }
+
+  getFearLevel(): number {
+    return this.fearLevel;
+  }
+
+  /** Anti-silence: everything suddenly louder for `durationSec`, then drops back. */
+  antiSilence(durationSec: number): void {
+    if (!this.ctx || !this.silenceGain) return;
+    this.setAmbientGain(1.3, 0.1);
+    this.playOneShot('stinger_low', 0.5);
+    window.setTimeout(() => this.setAmbientGain(1.0, 0.8), durationSec * 1000);
+  }
+
+  /** Duck to silence for `durationSec`, then restore. Fear-enhanced at high levels. */
   duckForSilence(durationSec: number): void {
     if (!this.ctx) return;
-    this.setAmbientGain(0.05, 0.4);
-    // Tiny "silence_drop" thump to mark the event
+    const f = this.fearLevel;
+
+    // At high fear, duck harder — true void
+    const duckTarget = f > 0.5 ? 0.01 : 0.05;
+    this.setAmbientGain(duckTarget, 0.4);
+
+    // At high fear, also kill the drone for true silence
+    if (f > 0.5 && this.droneGain) {
+      const now = this.ctx.currentTime;
+      rampParam(this.droneGain.gain, 0.001, now, now + 0.3);
+    }
+
     this.playOneShot('silence_drop', 0.6);
-    window.setTimeout(() => this.setAmbientGain(1.0, 1.2), durationSec * 1000);
+
+    // Snap-back ramp shortens with fear: 3s→0.4s (more jarring)
+    const restoreRamp = 3.0 - f * 2.6;
+    window.setTimeout(() => {
+      this.setAmbientGain(1.0, restoreRamp);
+      // Restore drone
+      if (f > 0.5 && this.droneGain && this.ctx) {
+        const base = AMBIENT_PRESETS[this.currentPreset];
+        const now = this.ctx.currentTime;
+        rampParam(this.droneGain.gain, base.droneGain * (1 + f * 2), now, now + restoreRamp);
+      }
+    }, durationSec * 1000);
   }
 
   /** Trigger Phobos's breath — sub-bass pulse with a slow attack. */
@@ -296,6 +378,126 @@ export class AudioManager {
         this.playBreath(0.4 * volume);
         break;
       }
+      case 'stinger_low': {
+        // Sub-bass hit — sine sweep 30Hz→15Hz, hard attack
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(30, now);
+        osc.frequency.exponentialRampToValueAtTime(15, now + 0.28);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(0.9 * volume, now + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
+        osc.connect(g).connect(this.sceneMix);
+        osc.start(now);
+        osc.stop(now + 0.32);
+        break;
+      }
+      case 'stinger_high': {
+        // Treble stab — white noise burst through tight bandpass at 4kHz
+        const src = ctx.createBufferSource();
+        src.buffer = this.noiseBuffer;
+        src.playbackRate.value = 3.0;
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = 4000;
+        bp.Q.value = 8;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(0.7 * volume, now + 0.005);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 0.15);
+        src.connect(bp).connect(g).connect(this.sceneMix);
+        src.start(now);
+        src.stop(now + 0.16);
+        break;
+      }
+      case 'reverse_creak': {
+        // Uncanny creak — frequency sweeps UP instead of down
+        const osc = ctx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(70, now);
+        osc.frequency.exponentialRampToValueAtTime(140, now + 0.8);
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 420;
+        filter.Q.value = 6;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(0.18 * volume, now + 0.05);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 0.85);
+        osc.connect(filter).connect(g).connect(this.sceneMix);
+        osc.start(now);
+        osc.stop(now + 0.9);
+        break;
+      }
+      case 'radio_static': {
+        // Digital interference — brown noise × ring mod 120Hz
+        const src = ctx.createBufferSource();
+        src.buffer = this.noiseBuffer;
+        const hp = ctx.createBiquadFilter();
+        hp.type = 'highpass';
+        hp.frequency.value = 1000;
+        const ringOsc = ctx.createOscillator();
+        ringOsc.type = 'sine';
+        ringOsc.frequency.value = 120;
+        const ringGain = ctx.createGain();
+        ringGain.gain.value = 0;
+        ringOsc.connect(ringGain.gain);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.5 * volume, now);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+        src.connect(hp).connect(ringGain).connect(g).connect(this.sceneMix);
+        ringOsc.start(now);
+        ringOsc.stop(now + 0.52);
+        src.start(now);
+        src.stop(now + 0.52);
+        break;
+      }
+      case 'tone_wrong': {
+        // Dissonant minor 2nd — two sines that feel wrong together
+        const osc1 = ctx.createOscillator();
+        osc1.type = 'sine';
+        osc1.frequency.value = 440;
+        const osc2 = ctx.createOscillator();
+        osc2.type = 'sine';
+        osc2.frequency.value = 466; // minor 2nd above A4
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.25 * volume, now);
+        g.gain.setValueAtTime(0.25 * volume, now + 1.5);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 3.0);
+        osc1.connect(g);
+        osc2.connect(g);
+        g.connect(this.sceneMix);
+        osc1.start(now);
+        osc2.start(now);
+        osc1.stop(now + 3.1);
+        osc2.stop(now + 3.1);
+        break;
+      }
+      case 'impact': {
+        // Door slam — brown noise through lowpass + hard clipping
+        const src = ctx.createBufferSource();
+        src.buffer = this.noiseBuffer;
+        src.playbackRate.value = 0.5;
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 80;
+        lp.Q.value = 1;
+        const clip = ctx.createWaveShaper();
+        const clipCurve = new Float32Array(new ArrayBuffer(256 * 4));
+        for (let i = 0; i < 256; i++) {
+          const x = (i / 255) * 2 - 1;
+          clipCurve[i] = Math.max(-0.8, Math.min(0.8, x * 2.5));
+        }
+        clip.curve = clipCurve;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.9 * volume, now);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
+        src.connect(lp).connect(clip).connect(g).connect(this.sceneMix);
+        src.start(now);
+        src.stop(now + 0.12);
+        break;
+      }
       default: {
         // Unknown id — attach a soft thump so events still register audibly
         const osc = ctx.createOscillator();
@@ -341,15 +543,23 @@ export class AudioManager {
     rampParam(this.droneGain.gain, targets.droneGain, now, end);
   }
 
-  /** Random infrequent creaks — reads as a "lived-in" room. */
+  /** Random infrequent creaks — reads as a "lived-in" room. Rate scales with fear. */
   private startCreakScheduler(): void {
     const schedule = () => {
       const presetRate = this.currentPreset === 'attic' ? 4 : this.currentPreset === 'bedroom' ? 7 : 10;
-      // mean inter-arrival presetRate seconds, with jitter
-      const next = presetRate * 1000 + Math.random() * presetRate * 1000;
+      // mean inter-arrival presetRate seconds, scaled by fear multiplier
+      const scaled = presetRate * this.creakRateMultiplier;
+      const next = scaled * 1000 + Math.random() * scaled * 1000;
       this.creakTimer = window.setTimeout(() => {
         if (!this.ctx) return;
-        this.playOneShot(Math.random() < 0.4 ? 'creak_door' : 'creak_floor', 0.4);
+        // At high fear, occasionally use reverse_creak for uncanny effect
+        let creakId: 'creak_door' | 'creak_floor' | 'reverse_creak';
+        if (this.fearLevel > 0.6 && Math.random() < 0.25) {
+          creakId = 'reverse_creak';
+        } else {
+          creakId = Math.random() < 0.4 ? 'creak_door' : 'creak_floor';
+        }
+        this.playOneShot(creakId, 0.4);
         schedule();
       }, next);
     };

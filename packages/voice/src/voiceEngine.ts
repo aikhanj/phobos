@@ -1,6 +1,7 @@
 import { VoiceProxyClient } from './client';
 import { StreamingPCMPlayer } from './streamingDecoder';
 import { createSpatialNode, updateListener as updateListenerImpl } from './spatial';
+import { HorrorVoiceFX } from './horrorFx';
 import type {
   VoiceEngineOptions,
   VoiceOptions,
@@ -23,6 +24,7 @@ export class VoiceEngine {
   private readonly cacheEnabled: boolean;
   private readonly cacheSize: number;
   private readonly debug: boolean;
+  private horrorFear = 0;
 
   private readonly buffers = new Map<string, AudioBuffer>();
 
@@ -52,17 +54,29 @@ export class VoiceEngine {
     const modelId = opts.modelId ?? this.defaultModelId;
     const key = this.ttsCacheKey(voiceId, modelId, sampleRate, opts.text);
 
+    const useHorror = opts.horrorFx !== false;
+
     const cached = this.cacheEnabled && !opts.bypassCache ? this.buffers.get(key) : undefined;
     if (cached) {
       this.log('info', `tts cache hit: "${opts.text.slice(0, 40)}"`);
-      const play = this.playBuffer(cached, { position: opts.position, gain: opts.gain });
+      const play = this.playBuffer(cached, { position: opts.position, gain: opts.gain, horrorFx: useHorror });
       return { done: play.done, stop: play.stop, getBuffer: () => cached };
     }
 
     const spatial = createSpatialNode(this.ctx, opts.position, opts.gain ?? 1);
     spatial.output.connect(this.destination);
 
-    const player = new StreamingPCMPlayer(this.ctx, spatial.input, sampleRate);
+    // Insert horror voice FX chain between player and spatial node
+    let fx: HorrorVoiceFX | null = null;
+    let playerDest: AudioNode = spatial.input;
+    if (useHorror) {
+      fx = new HorrorVoiceFX(this.ctx);
+      fx.setFear(this.horrorFear);
+      fx.output.connect(spatial.input);
+      playerDest = fx.input;
+    }
+
+    const player = new StreamingPCMPlayer(this.ctx, playerDest, sampleRate);
     let stopped = false;
     let finalBuffer: AudioBuffer | null = null;
     let resolveDone!: () => void;
@@ -70,7 +84,7 @@ export class VoiceEngine {
 
     const run = async () => {
       try {
-        const { stream } = await this.client.streamTTS({ text: opts.text, voiceId, modelId, sampleRate });
+        const { stream } = await this.client.streamTTS({ text: opts.text, voiceId, modelId, sampleRate, voiceSettings: opts.voiceSettings });
         const reader = stream.getReader();
         while (true) {
           const { done: streamDone, value } = await reader.read();
@@ -94,6 +108,7 @@ export class VoiceEngine {
         this.log('error', `speak failed: ${(e as Error).message}`);
       } finally {
         try { spatial.output.disconnect(); } catch { /* ignore */ }
+        if (fx) fx.dispose();
         resolveDone();
       }
     };
@@ -140,16 +155,26 @@ export class VoiceEngine {
 
   playBuffer(
     buffer: AudioBuffer,
-    opts: { position?: Vec3; gain?: number; loop?: boolean; destination?: AudioNode } = {},
+    opts: { position?: Vec3; gain?: number; loop?: boolean; destination?: AudioNode; horrorFx?: boolean } = {},
   ): PlayHandle {
     const dest = opts.destination ?? this.destination;
     const spatial = createSpatialNode(this.ctx, opts.position, opts.gain ?? 1);
     spatial.output.connect(dest);
 
+    let fx: HorrorVoiceFX | null = null;
+    let srcDest: AudioNode = spatial.input;
+    if (opts.horrorFx) {
+      fx = new HorrorVoiceFX(this.ctx);
+      fx.setFear(this.horrorFear);
+      fx.output.connect(spatial.input);
+      srcDest = fx.input;
+    }
+
     const src = this.ctx.createBufferSource();
     src.buffer = buffer;
     src.loop = opts.loop ?? false;
-    src.connect(spatial.input);
+    if (fx) src.playbackRate.value = fx.getPlaybackRate();
+    src.connect(srcDest);
 
     let resolveDone!: () => void;
     const done = new Promise<void>((r) => { resolveDone = r; });
@@ -157,6 +182,7 @@ export class VoiceEngine {
 
     src.onended = () => {
       try { spatial.output.disconnect(); } catch { /* ignore */ }
+      if (fx) fx.dispose();
       resolveDone();
     };
     src.start();
@@ -169,6 +195,14 @@ export class VoiceEngine {
         try { src.stop(); } catch { /* already stopped */ }
       },
     };
+  }
+
+  setHorrorFear(level: number): void {
+    this.horrorFear = Math.max(0, Math.min(1, level));
+  }
+
+  getHorrorFear(): number {
+    return this.horrorFear;
   }
 
   updateListener(position: Vec3, forward: Vec3, up: Vec3): void {
