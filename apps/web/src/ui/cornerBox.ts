@@ -1,4 +1,4 @@
-import type { AgentLogEntry } from '../types';
+import type { AgentLogEntry } from '@phobos/types';
 
 const SOURCE_COLORS: Record<string, string> = {
   scare_director: '#ff4444',

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { GameScene } from '../types';
+import type { GameScene } from '@phobos/types';
 
 export class Engine {
   readonly renderer: THREE.WebGLRenderer;

@@ -36,39 +36,55 @@ The project is built in 6 sequential phases. **Do not skip ahead.**
 
 ## Architecture
 
-### File structure
+### Monorepo layout
+
+Turborepo with npm workspaces. Root scripts delegate to `turbo run <task>`.
 
 ```
-src/
-├── main.ts                    # Entry point, wires everything together
-├── types.ts                   # Shared interfaces: GameScene, SceneConfig, BiosignalState, AgentLogEntry
-├── game/
-│   ├── engine.ts              # Three.js renderer, scene, camera, tiered game loop (60fps + 500ms + 10s ticks)
-│   ├── player.ts              # PointerLockControls + WASD velocity movement
-│   ├── creatures.ts           # [stub] Creature spawning + AI
-│   ├── sceneConfig.ts         # SceneConfig type, SCENE_CONFIGS map, lerp interpolator
-│   └── scenes/
-│       ├── basement.ts        # 6-wall room, flickering light, props
-│       ├── bedroom.ts         # [stub] Primary demo scene
-│       └── attic.ts           # [stub]
-├── biosignals/
-│   ├── faceLandmarks.ts       # [stub] MediaPipe wrapper
-│   ├── rppg.ts                # [stub] Heart rate from webcam
-│   ├── fearScore.ts           # [stub] Aggregates biosignals → fear_score 0-1
-│   └── calibration.ts         # [stub] 30s baseline capture
-├── agents/
-│   ├── scareDirector.ts       # [stub] Local orchestrator — queries sub-directors
-│   ├── audioDirector.ts       # [stub] Dedalus client (mock: direct OpenAI)
-│   ├── creatureDirector.ts    # [stub] Dedalus client (mock: direct OpenAI)
-│   └── pacingDirector.ts      # [stub] Dedalus client (mock: direct OpenAI)
-├── audio/
-│   └── audioManager.ts        # [stub] Web Audio API mixer
-└── ui/
-    ├── titleScreen.ts         # "PHOBOS" title + webcam bg + click-to-start
-    └── cornerBox.ts           # Top-right HUD: webcam, fear meter, BPM, agent log
+phobos/
+├── turbo.json                # pipeline config: build, dev, preview, typecheck
+├── tsconfig.base.json        # shared TS compiler options
+├── apps/
+│   └── web/                  # @phobos/web — browser game (Vite)
+│       ├── vite.config.ts
+│       ├── index.html
+│       ├── .env.example      # VITE_OPENAI_API_KEY, VITE_DEDALUS_*_URL
+│       └── src/
+│           ├── main.ts              # Entry, wires everything together
+│           ├── game/
+│           │   ├── engine.ts        # Three.js renderer, tiered game loop (60fps + 500ms + 10s)
+│           │   ├── player.ts        # PointerLockControls + WASD velocity
+│           │   ├── creatures.ts     # [stub] Creature spawning + AI
+│           │   ├── sceneConfig.ts   # SCENE_CONFIGS map, lerp interpolator
+│           │   └── scenes/
+│           │       ├── basement.ts  # 6-wall room, flickering light, props
+│           │       ├── bedroom.ts   # [stub] Primary demo scene
+│           │       └── attic.ts     # [stub]
+│           ├── biosignals/
+│           │   ├── faceLandmarks.ts # [stub] MediaPipe wrapper
+│           │   ├── rppg.ts          # [stub] Heart rate from webcam
+│           │   ├── fearScore.ts     # [stub] Aggregates biosignals → fear_score
+│           │   └── calibration.ts   # [stub] 30s baseline capture
+│           ├── agents/
+│           │   ├── scareDirector.ts    # [stub] Local orchestrator
+│           │   ├── audioDirector.ts    # [stub] Dedalus client
+│           │   ├── creatureDirector.ts # [stub] Dedalus client
+│           │   └── pacingDirector.ts   # [stub] Dedalus client
+│           ├── audio/
+│           │   └── audioManager.ts  # [stub] Web Audio API mixer
+│           └── ui/
+│               ├── titleScreen.ts   # "PHOBOS" title + webcam bg + click-to-start
+│               └── cornerBox.ts     # Top-right HUD: webcam, fear, BPM, agent log
+└── packages/
+    └── types/                # @phobos/types — shared interfaces (source-only, no build step)
+        └── src/index.ts      # GameScene, SceneConfig, BiosignalState, AgentLogEntry
 ```
+
+Import shared types as `import type { BiosignalState } from '@phobos/types'`. The types package exports TS source directly (no `tsc` build); Vite/esbuild consume it natively and tsc resolves it through npm workspace symlinks.
 
 Files marked `[stub]` have typed interfaces but no implementation yet. They're wired into the engine's tick system and ready for Phase 2-4.
+
+**When to add a new workspace:** when a Dedalus container agent becomes runnable (Phase 4), create `apps/audio-director/`, etc. They import `@phobos/types` for shared wire-format interfaces. Add browser-side shared helpers (e.g. a future audio mixer used by multiple apps) under `packages/`.
 
 ### Game loop
 
@@ -82,7 +98,7 @@ Hook into these via `engine.onUpdate`, `engine.onBiosignalTick`, `engine.onAgent
 
 ### Scene system
 
-Each scene implements `GameScene` interface from `types.ts`:
+Each scene implements `GameScene` interface from `@phobos/types`:
 - `load()` builds geometry into `this.group` (a `THREE.Group`)
 - `unload()` disposes all geometry/materials and clears the group
 - `update(dt)` runs per-frame logic (light flicker, creature AI, etc.)
@@ -118,7 +134,7 @@ This is the primary demo differentiator for judges — shows the AI reading the 
 
 ## Environment variables
 
-Copy `.env.example` to `.env`:
+Copy `apps/web/.env.example` to `apps/web/.env`:
 ```
 VITE_OPENAI_API_KEY=           # OpenAI API key for agent LLM calls
 VITE_DEDALUS_AUDIO_URL=        # Dedalus container URL for Audio Director
@@ -139,6 +155,10 @@ Do not build unless Phase 1-5 are complete:
 
 ## Commands
 
+All commands run at the repo root; Turbo fans them out to workspaces.
+
 - `npm run dev` — Start dev server (opens browser)
 - `npm run build` — TypeScript check + Vite production build
 - `npm run preview` — Preview production build locally
+- `npm run typecheck` — `tsc --noEmit` across all workspaces
+- `npm run dev --workspace=@phobos/web` — Run a task in a single workspace (bypass turbo)
