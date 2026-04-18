@@ -1,4 +1,4 @@
-import type { BiosignalState } from '../types';
+import type { BiosignalState } from '@phobos/types';
 
 // Phase 4: Local orchestrator — queries sub-directors, synthesizes SceneConfig
 export class ScareDirector {

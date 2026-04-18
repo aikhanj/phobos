@@ -1,4 +1,4 @@
-import type { SceneConfig } from '../types';
+import type { SceneConfig } from '@phobos/types';
 
 export const SCENE_CONFIGS: Record<string, SceneConfig> = {
   basement: {

@@ -1,4 +1,4 @@
-import type { BiosignalState } from '../types';
+import type { BiosignalState } from '@phobos/types';
 
 // Phase 2: Fuse face landmarks + rPPG into rolling fear score 0-1
 export class FearScoreCalculator {

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { GameScene } from '../../types';
+import type { GameScene } from '@phobos/types';
 import { SCENE_CONFIGS } from '../sceneConfig';
 
 export class Bedroom implements GameScene {
