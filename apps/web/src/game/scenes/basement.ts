@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { AABB, GameScene, GazeTarget, Interactable, SceneEvent, Trigger } from '@phobos/types';
+import type { AABB, GameScene, GazeTarget, Interactable, NoteId, SceneEvent, Trigger } from '@phobos/types';
 import { SCENE_CONFIGS } from '../sceneConfig';
 import { wallAABB, aabbFromCenter } from '../collision';
 
@@ -60,8 +60,32 @@ export class Basement implements GameScene {
 
   private readonly onTransitionToBedroom: () => void;
 
-  constructor(opts: { onTransitionToBedroom: () => void }) {
+  // ── narrative notes ──
+  private noteGrant!: THREE.Mesh;
+  private noteLab!: THREE.Mesh;
+  private noteGrantLight!: THREE.PointLight;
+  private noteLabLight!: THREE.PointLight;
+  private noteGrantEnabled = false;
+  private noteLabEnabled = false;
+  private noteGrantRead = false;
+  private noteLabRead = false;
+  private onNoteRead: ((noteId: NoteId) => void) | null = null;
+  private onNoteInteract: ((noteId: NoteId) => void) | null = null;
+
+  private crtMessage: string | null = null;
+  private crtMessageUntil = 0;
+
+  // ── calibration state ──
+  private candleLit: boolean[] = [];
+  private tripodLed!: THREE.Mesh;
+  private calibrationMode = true;
+  private targetOverheadBase = 0.08;
+  private flareUntil = 0;
+
+  constructor(opts: { onTransitionToBedroom: () => void; onNoteRead?: (noteId: NoteId) => void; onNoteInteract?: (noteId: NoteId) => void }) {
     this.onTransitionToBedroom = opts.onTransitionToBedroom;
+    this.onNoteRead = opts.onNoteRead ?? null;
+    this.onNoteInteract = opts.onNoteInteract ?? null;
   }
 
   load(): void {
@@ -138,6 +162,31 @@ export class Basement implements GameScene {
 
     // ── stairs (+X side, ascending toward -Z into a dark void) ────────
     this.buildStairs(hw - 0.6, -hd + 0.6);
+
+    // ── narrative notes ──
+    const noteMat = new THREE.MeshLambertMaterial({ color: 0xe8dcc8, flatShading: true });
+
+    // Note 1: grant proposal — on the workbench
+    this.noteGrant = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 0.25), noteMat.clone());
+    this.noteGrant.rotation.x = -Math.PI / 2;
+    this.noteGrant.position.set(-hw + 1.2, 0.92, 0.4);
+    this.noteGrant.visible = false;
+    this.group.add(this.noteGrant);
+
+    this.noteGrantLight = new THREE.PointLight(0xffe0a0, 0, 2.5);
+    this.noteGrantLight.position.copy(this.noteGrant.position).y += 0.3;
+    this.group.add(this.noteGrantLight);
+
+    // Note 2: lab journal — near the shelf
+    this.noteLab = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 0.25), noteMat.clone());
+    this.noteLab.rotation.x = -Math.PI / 2;
+    this.noteLab.position.set(hw - 1.8, 0.92, -1.0);
+    this.noteLab.visible = false;
+    this.group.add(this.noteLab);
+
+    this.noteLabLight = new THREE.PointLight(0xffe0a0, 0, 2.5);
+    this.noteLabLight.position.copy(this.noteLab.position).y += 0.3;
+    this.group.add(this.noteLabLight);
   }
 
   colliders(): AABB[] {
@@ -201,6 +250,8 @@ export class Basement implements GameScene {
     const cfg = SCENE_CONFIGS.basement;
     const hw = cfg.dimensions.width / 2;
     const hd = cfg.dimensions.depth / 2;
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const scene = this;
     // Stairs foot — look at the first few treads, press E to climb.
     const sx = hw - 0.55;
     const sz = -hd + 1.1;
@@ -211,6 +262,32 @@ export class Basement implements GameScene {
         hint: 'climb',
         range: 3.5,
         onInteract: () => this.onTransitionToBedroom(),
+      },
+      // Note: grant proposal
+      {
+        id: 'note_grant_proposal',
+        box: aabbFromCenter(-hw + 1.2, 0.92, 0.4, 0.15, 0.05, 0.15),
+        hint: 'read',
+        range: 2.5,
+        get enabled(): boolean { return scene.noteGrantEnabled && !scene.noteGrantRead; },
+        onInteract: () => {
+          scene.noteGrantRead = true;
+          scene.onNoteRead?.('note_grant_proposal');
+          scene.onNoteInteract?.('note_grant_proposal');
+        },
+      },
+      // Note: lab journal
+      {
+        id: 'note_lab_journal',
+        box: aabbFromCenter(hw - 1.8, 0.92, -1.0, 0.15, 0.05, 0.15),
+        hint: 'read',
+        range: 2.5,
+        get enabled(): boolean { return scene.noteLabEnabled && !scene.noteLabRead; },
+        onInteract: () => {
+          scene.noteLabRead = true;
+          scene.onNoteRead?.('note_lab_journal');
+          scene.onNoteInteract?.('note_lab_journal');
+        },
       },
     ];
   }
@@ -229,28 +306,82 @@ export class Basement implements GameScene {
       case 'silence':
         // Handled by AudioManager; nothing scene-local to track here.
         break;
+      case 'note_reveal':
+        if (event.noteId === 'note_grant_proposal') {
+          this.noteGrant.visible = true;
+          this.noteGrantEnabled = true;
+          this.noteGrantLight.intensity = 0.4;
+        } else if (event.noteId === 'note_lab_journal') {
+          this.noteLab.visible = true;
+          this.noteLabEnabled = true;
+          this.noteLabLight.intensity = 0.4;
+        }
+        break;
+      case 'crt_message':
+        this.crtMessage = event.text;
+        this.crtMessageUntil = this.time + event.durationS;
+        break;
       default: break;
     }
+  }
+
+  // ── calibration controls (called from main.ts) ──
+
+  lightCandle(index: number): void {
+    if (index < 0 || index >= this.candleLit.length || this.candleLit[index]) return;
+    this.candleLit[index] = true;
+    if (this.candleFlames[index]) this.candleFlames[index].visible = true;
+  }
+
+  flareCandles(): void {
+    for (let i = 0; i < this.candleLights.length; i++) {
+      this.candleLit[i] = true;
+      if (this.candleFlames[i]) this.candleFlames[i].visible = true;
+    }
+    this.flareUntil = this.time + 0.6;
+  }
+
+  setCalibrationComplete(): void {
+    this.calibrationMode = false;
+    this.targetOverheadBase = 0.5;
+  }
+
+  setOverheadBase(v: number): void {
+    this.targetOverheadBase = v;
   }
 
   update(dt: number): void {
     this.time += dt;
 
-    // ── overhead bulb: directed pattern overrides natural jitter ──────
-    let base = 0.5;
+    // ── overhead bulb: calibration-aware, directed pattern overrides ──
+    let base = this.targetOverheadBase;
     if (this.flickerUntil > this.time) {
       switch (this.flickerPattern) {
-        case 'subtle':   base = 0.5 + Math.sin(this.time * 18) * 0.08; break;
-        case 'hard':     base = 0.5 + (Math.random() < 0.25 ? -0.35 : 0.15); break;
+        case 'subtle':   base = this.targetOverheadBase + Math.sin(this.time * 18) * 0.08; break;
+        case 'hard':     base = this.targetOverheadBase + (Math.random() < 0.25 ? -0.35 : 0.15); break;
         case 'blackout': base = 0.0; break;
       }
-    } else {
-      base = 0.5 + Math.sin(this.time * 3.7) * 0.03 + (Math.random() < 0.012 ? -0.15 : 0);
+    } else if (!this.calibrationMode) {
+      base = this.targetOverheadBase + Math.sin(this.time * 3.7) * 0.03 + (Math.random() < 0.012 ? -0.15 : 0);
     }
-    this.overheadLight.intensity = Math.max(0, base);
+    if (this.calibrationMode) {
+      this.overheadLight.intensity += (base - this.overheadLight.intensity) * Math.min(1, dt * 2);
+    } else {
+      this.overheadLight.intensity = Math.max(0, base);
+    }
 
-    // ── candle flames (chaotic independent) ───────────────────────────
+    // ── candle flames (chaotic independent, gated on candleLit) ───────
     for (let i = 0; i < this.candleLights.length; i++) {
+      if (!this.candleLit[i]) {
+        this.candleLights[i].intensity = 0;
+        continue;
+      }
+      if (this.time < this.flareUntil) {
+        this.candleLights[i].intensity = 1.8;
+        const flame = this.candleFlames[i];
+        if (flame) flame.scale.y = 1.3;
+        continue;
+      }
       const phase = i * 1.37;
       const flick = 0.55 + Math.sin(this.time * (12 + i) + phase) * 0.12 + (Math.random() - 0.5) * 0.08;
       this.candleLights[i].intensity = Math.max(0.15, flick);
@@ -258,11 +389,35 @@ export class Basement implements GameScene {
       if (flame) flame.scale.y = 1 + Math.sin(this.time * (20 + i * 2) + phase) * 0.25 + (Math.random() - 0.5) * 0.12;
     }
 
+    // ── tripod LED pulse during calibration ──
+    if (this.tripodLed) {
+      if (this.calibrationMode) {
+        const pulse = (Math.sin(this.time * 3) + 1) / 2;
+        (this.tripodLed.material as THREE.MeshBasicMaterial).color.setHex(pulse > 0.5 ? 0xff2020 : 0x300000);
+      } else {
+        (this.tripodLed.material as THREE.MeshBasicMaterial).color.setHex(0xff2020);
+      }
+    }
+
     // ── CRT static animation (swap canvas every ~60ms) ────────────────
     this.tvStaticAccum += dt;
     if (this.tvStaticAccum > 0.06) {
       this.tvStaticAccum = 0;
-      this.paintStatic();
+      if (this.crtMessage && this.time < this.crtMessageUntil) {
+        const ctx = this.tvStaticCtx;
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, 64, 48);
+        ctx.fillStyle = '#00ff41';
+        ctx.font = '6px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(this.crtMessage, 32, 24);
+      } else {
+        if (this.crtMessage && this.time >= this.crtMessageUntil) {
+          this.crtMessage = null;
+        }
+        this.paintStatic();
+      }
       this.tvStaticTex.needsUpdate = true;
     }
     // TV glow tracks with flicker blackout (goes dark when the bulb goes out)
@@ -280,6 +435,14 @@ export class Basement implements GameScene {
         }
       }
       this.crateTarget = null;
+    }
+
+    // ── note light pulse ──
+    if (this.noteGrantEnabled && !this.noteGrantRead) {
+      this.noteGrantLight.intensity = 0.25 + Math.sin(this.time * 3) * 0.15;
+    }
+    if (this.noteLabEnabled && !this.noteLabRead) {
+      this.noteLabLight.intensity = 0.25 + Math.sin(this.time * 3 + 1) * 0.15;
     }
   }
 
@@ -354,13 +517,15 @@ export class Basement implements GameScene {
       new THREE.MeshBasicMaterial({ color: 0xffc960 }),
     );
     flame.position.set(x, y + 0.12, z);
+    flame.visible = false;
     this.group.add(flame);
     this.candleFlames.push(flame);
-    // point light
-    const l = new THREE.PointLight(0xff9040, 0.7, 3.2, 2);
+    // point light (starts unlit — calibration lights them one by one)
+    const l = new THREE.PointLight(0xff9040, 0, 3.2, 2);
     l.position.set(x, y + 0.15, z);
     this.group.add(l);
     this.candleLights.push(l);
+    this.candleLit.push(false);
   }
 
   private buildTripod(x: number, y: number, z: number): void {
@@ -392,6 +557,7 @@ export class Basement implements GameScene {
     );
     led.position.set(x + 0.13, y + 1.38, z + 0.1);
     this.group.add(led);
+    this.tripodLed = led;
   }
 
   private buildCRT(x: number, y: number, z: number): void {

@@ -6,6 +6,7 @@ const SOURCE_COLORS: Record<string, string> = {
   creature_director: '#aa44ff',
   pacing_director: '#ffaa44',
   system: '#666666',
+  phobos: '#00ff41',
 };
 
 export class CornerBox {
@@ -15,6 +16,7 @@ export class CornerBox {
   private fearBar: HTMLDivElement;
   private bpmValue: HTMLSpanElement;
   private logTerminal: HTMLDivElement;
+  private statsBar: HTMLDivElement | null = null;
 
   constructor() {
     this.container = document.createElement('div');
@@ -57,7 +59,8 @@ export class CornerBox {
     this.videoWrap.appendChild(this.videoElement);
 
     // Stats bar (fear + BPM side by side)
-    const statsBar = document.createElement('div');
+    this.statsBar = document.createElement('div');
+    const statsBar = this.statsBar;
     Object.assign(statsBar.style, {
       display: 'flex',
       alignItems: 'center',
@@ -181,6 +184,74 @@ export class CornerBox {
 
   hide(): void {
     this.container.style.display = 'none';
+  }
+
+  /** The outer container — needed by RevealSequence for expansion. */
+  getContainer(): HTMLDivElement {
+    return this.container;
+  }
+
+  /**
+   * Expand the corner box to fill the viewport (reveal sequence) or
+   * reset it back to the corner position.
+   */
+  setExpanding(expanding: boolean): void {
+    if (expanding) {
+      Object.assign(this.container.style, {
+        transition: 'all 3s cubic-bezier(0.4, 0, 0.2, 1)',
+        top: '0',
+        right: '0',
+        left: '0',
+        bottom: '0',
+        width: '100vw',
+        height: '100vh',
+        borderRadius: '0',
+        zIndex: '35',
+        border: 'none',
+      });
+      Object.assign(this.videoWrap.style, {
+        height: '100%',
+        borderBottom: 'none',
+      });
+      if (this.statsBar) this.statsBar.style.display = 'none';
+      this.logTerminal.style.display = 'none';
+    } else {
+      Object.assign(this.container.style, {
+        transition: 'none',
+        top: '16px',
+        right: '16px',
+        left: '',
+        bottom: '',
+        width: '300px',
+        height: '',
+        borderRadius: '2px',
+        zIndex: '10',
+        border: '1px solid #222',
+      });
+      Object.assign(this.videoWrap.style, {
+        height: '170px',
+        borderBottom: '1px solid #222',
+      });
+      if (this.statsBar) this.statsBar.style.display = 'flex';
+      this.logTerminal.style.display = 'block';
+    }
+  }
+
+  /**
+   * Rapidly append lines to the agent log — used for the reveal data dump.
+   * Returns a promise that resolves when all lines have been appended.
+   */
+  rapidScroll(lines: string[], intervalMs = 80): Promise<void> {
+    return new Promise((resolve) => {
+      let i = 0;
+      const step = (): void => {
+        if (i >= lines.length) { resolve(); return; }
+        this.appendLog({ source: 'phobos', message: lines[i], timestamp: Date.now() });
+        i++;
+        setTimeout(step, intervalMs);
+      };
+      step();
+    });
   }
 
   dispose(): void {

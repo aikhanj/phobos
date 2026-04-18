@@ -57,4 +57,9 @@ export class FadeOverlay {
     this.el.style.transition = 'none';
     this.el.style.opacity = '1';
   }
+
+  /** Override z-index — used by reveal sequence to layer above expanded corner box. */
+  setZIndex(z: number): void {
+    this.el.style.zIndex = String(z);
+  }
 }

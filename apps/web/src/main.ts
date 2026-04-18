@@ -30,7 +30,7 @@ import { CalibrationOverlay } from './ui/calibrationOverlay';
 import { FaceEmotionDetector } from './biosignals/faceEmotion';
 import { FearScoreCalculator } from './biosignals/fearScore';
 import { BluetoothHrClient } from './biosignals/bluetoothHr';
-import type { AgentLogEntry, BiosignalState, NoteId, PhobosTickContext, WebcamGlitchType } from '@phobos/types';
+import type { AgentLogEntry, BiosignalState, MicroMood, NoteId, PhobosTickContext, WebcamGlitchType } from '@phobos/types';
 
 async function main() {
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -588,6 +588,11 @@ async function main() {
       bus.fire({ kind: 'sound', asset: 'footstep_behind', volume: 0.8 });
     });
 
+    // 12s: tone_wrong — something feels off
+    t.schedule(12000, () => {
+      bus.fire({ kind: 'sound', asset: 'tone_wrong', volume: 0.25 });
+    });
+
     // 14s: silence drop + prep crate move
     t.schedule(14000, () => {
       log('audio_director', 'silence.');
@@ -608,16 +613,28 @@ async function main() {
       );
     });
 
-    // 19s: hard blackout flicker for punctuation
+    // 19s: hard blackout flicker + stinger combo
     t.schedule(19000, () => {
+      bus.fire({ kind: 'sound', asset: 'stinger_low', volume: 0.8 });
+      bus.fire({ kind: 'sound', asset: 'impact', volume: 0.7 });
       bus.fire({ kind: 'flicker', duration: 0.35, pattern: 'blackout' });
       fade.blink(150);
+    });
+
+    // 23s: radio static interference
+    t.schedule(23000, () => {
+      bus.fire({ kind: 'sound', asset: 'radio_static', volume: 0.5 });
     });
 
     // 26s: a whisper pointing up the stairs
     t.schedule(26000, () => {
       log('pacing_director', 'upstairs.');
       bus.fire({ kind: 'sound', asset: 'whisper_see', volume: 0.6 });
+    });
+
+    // 30s: reverse creak — something wrong
+    t.schedule(30000, () => {
+      bus.fire({ kind: 'sound', asset: 'reverse_creak', volume: 0.5 });
     });
   }
 
@@ -645,6 +662,11 @@ async function main() {
       bus.fire({ kind: 'figure', anchor: 'window', duration: 1.2, opacity: 0.85 });
     });
 
+    // 15s: tone_wrong builds dread
+    t.schedule(15000, () => {
+      bus.fire({ kind: 'sound', asset: 'tone_wrong', volume: 0.3 });
+    });
+
     // 18s: Pacing forces release — light warms, silence, breath.
     t.schedule(18000, () => {
       log('pacing_director', 'release. twelve seconds.');
@@ -652,17 +674,29 @@ async function main() {
       bus.fire({ kind: 'breath', intensity: 0.3 });
     });
 
-    // 22s: the release isn't release — mirror swaps to "extra figure".
+    // 22s: the release isn't release — mirror swaps to "extra figure" + stinger.
     t.schedule(22000, () => {
       log('creature_director', 'look at the mirror.');
+      bus.fire({ kind: 'sound', asset: 'stinger_high', volume: 0.7 });
       bus.fire({ kind: 'mirror_swap', variant: 'extra_figure' });
     });
 
-    // 28s: harder flicker, wardrobe opens wider
+    // 25s: anti-silence — disorienting volume surge
+    t.schedule(25000, () => {
+      bus.fire({ kind: 'anti_silence', duration: 2 });
+    });
+
+    // 28s: harder flicker, wardrobe opens wider + impact
     t.schedule(28000, () => {
       log('audio_director', 'lower.');
+      bus.fire({ kind: 'sound', asset: 'impact', volume: 0.8 });
       bus.fire({ kind: 'flicker', duration: 0.8, pattern: 'hard' });
       bus.fire({ kind: 'prop_state', propId: 'bedroom_wardrobe_door', state: 'ajar', param: 0.55 });
+    });
+
+    // 32s: radio static before hatch unlock
+    t.schedule(32000, () => {
+      bus.fire({ kind: 'sound', asset: 'radio_static', volume: 0.6 });
     });
 
     // 35s: hatch unlocks
@@ -686,8 +720,21 @@ async function main() {
       bus.fire({ kind: 'silence', duration: 20 });
       bus.fire({ kind: 'breath', intensity: 0.4 });
     });
+    // 6s: reverse creak in the void
+    t.schedule(6000, () => {
+      bus.fire({ kind: 'sound', asset: 'reverse_creak', volume: 0.3 });
+    });
     t.schedule(9000, () => log('pacing_director', 'let them approach.'));
-    t.schedule(14000, () => log('creature_director', 'closer.'));
+    // 11s: stinger combo — something is here
+    t.schedule(11000, () => {
+      bus.fire({ kind: 'sound', asset: 'stinger_low', volume: 0.7 });
+      bus.fire({ kind: 'sound', asset: 'stinger_high', volume: 0.5 });
+      bus.fire({ kind: 'sound', asset: 'glitch', volume: 0.6 });
+    });
+    t.schedule(14000, () => {
+      log('creature_director', 'closer.');
+      bus.fire({ kind: 'sound', asset: 'radio_static', volume: 0.5 });
+    });
   }
 
   // ── boot sequence ──
@@ -798,8 +845,38 @@ async function main() {
     log('system', 'phobos initialized.');
 
     // ── Biosignal tick (every 500ms) — drives fear-reactive audio ──
+    // Simulate rising fear since biosignals are stubbed (Phase 2).
+    // Fear slowly climbs over ~90s from 0→0.8, creating an escalating
+    // audio atmosphere even without real biosignal data.
     fearAudio.startHeartbeat();
     engine.onBiosignalTick = () => {
+      const elapsed = (performance.now() - sessionStartTime) / 1000;
+      const simulatedFear = Math.min(0.85, elapsed / 90);
+      lastFearScore = simulatedFear;
+      const bioState: BiosignalState = {
+        fearScore: simulatedFear,
+        bpm: lastBpm,
+        gazeAversion: 0,
+        flinchCount: 0,
+        timeInScene: (performance.now() - sceneStartTime) / 1000,
+        lookStillness: 0,
+        retreatVelocity: 0,
+        gazeDwellMs: {},
+        timestamp: Date.now(),
+      };
+      fearAudio.update(bioState);
+    };
+
+    // ── Audio director tick — runs every 10s regardless of API key ──
+    // Cycles through pacing moods on a fixed pattern and generates
+    // horror sound events. Works standalone so audio is always reactive.
+    const MOOD_CYCLE: MicroMood[] = ['descent', 'descent', 'hold', 'hold', 'crescendo', 'release'];
+    let moodIndex = 0;
+
+    const runAudioDirectorTick = (): void => {
+      if (revealRunning) return;
+      const mood = MOOD_CYCLE[moodIndex % MOOD_CYCLE.length];
+      moodIndex++;
       const bioState: BiosignalState = {
         fearScore: lastFearScore,
         bpm: lastBpm,
@@ -811,7 +888,12 @@ async function main() {
         gazeDwellMs: {},
         timestamp: Date.now(),
       };
-      fearAudio.update(bioState);
+      const audioPlan = audioDirector.query(mood, bioState, currentSceneName);
+      fearAudio.setPhase(audioPlan.microMood);
+      if (audioPlan.events.length > 0) {
+        engine.eventBus.ingestPlan(audioPlan);
+      }
+      log(audioPlan.source, audioPlan.rationale);
     };
 
     // ── Phobos LLM agent tick (every 10s) ──
@@ -844,16 +926,13 @@ async function main() {
         if (plan) {
           engine.eventBus.ingestPlan(plan);
           log(plan.source, plan.rationale);
-
-          // Feed the audio director with the pacing mood
-          const audioPlan = audioDirector.query(plan.microMood, bioState, currentSceneName);
-          fearAudio.setPhase(audioPlan.microMood);
-          if (audioPlan.events.length > 0) {
-            engine.eventBus.ingestPlan(audioPlan);
-          }
-          log(audioPlan.source, audioPlan.rationale);
+          // Use Phobos mood when API key is available
+          runAudioDirectorTick();
         }
       };
+    } else {
+      // No API key — run audio director on its own 10s timer
+      engine.onAgentTick = () => { runAudioDirectorTick(); };
     }
 
     // Load first scene & start the ritual.

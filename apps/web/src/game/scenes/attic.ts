@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { AABB, GameScene, GazeTarget, Interactable, SceneEvent, Trigger } from '@phobos/types';
+import type { AABB, GameScene, GazeTarget, Interactable, NoteId, SceneEvent, Trigger } from '@phobos/types';
 import { SCENE_CONFIGS } from '../sceneConfig';
 import { wallAABB, aabbFromCenter } from '../collision';
 
@@ -45,10 +45,24 @@ export class Attic implements GameScene {
   private bulbChainGroup!: THREE.Group;
   private time = 0;
 
+  // ── narrative notes ──
+  private noteFinal!: THREE.Mesh;
+  private notePhobos!: THREE.Mesh;
+  private noteFinalLight!: THREE.PointLight;
+  private notePhobosLight!: THREE.PointLight;
+  private noteFinalEnabled = false;
+  private notePhobosEnabled = false;
+  private noteFinalRead = false;
+  private notePhobosRead = false;
+  private onNoteRead: ((noteId: NoteId) => void) | null = null;
+  private onNoteInteract: ((noteId: NoteId) => void) | null = null;
+
   private readonly onDemoEnd: () => void;
 
-  constructor(opts: { onDemoEnd: () => void }) {
+  constructor(opts: { onDemoEnd: () => void; onNoteRead?: (noteId: NoteId) => void; onNoteInteract?: (noteId: NoteId) => void }) {
     this.onDemoEnd = opts.onDemoEnd;
+    this.onNoteRead = opts.onNoteRead ?? null;
+    this.onNoteInteract = opts.onNoteInteract ?? null;
   }
 
   load(): void {
@@ -138,6 +152,31 @@ export class Attic implements GameScene {
     this.group.add(this.makeProp(1.1, 0.02, 0.04, new THREE.Vector3(0, 0.015, 2.82), 0x0a0604));
     this.group.add(this.makeProp(0.04, 0.02, 1.04, new THREE.Vector3(-0.53, 0.015, 2.3), 0x0a0604));
     this.group.add(this.makeProp(0.04, 0.02, 1.04, new THREE.Vector3(0.53, 0.015, 2.3), 0x0a0604));
+
+    // ── narrative notes ──
+    const noteMat = new THREE.MeshLambertMaterial({ color: 0xe8dcc8, flatShading: true });
+
+    // Note 5: final journal entry — on the floor near the dollhouse
+    this.noteFinal = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 0.25), noteMat.clone());
+    this.noteFinal.rotation.x = -Math.PI / 2;
+    this.noteFinal.position.set(2.0, 0.02, -1.8);
+    this.noteFinal.visible = false;
+    this.group.add(this.noteFinal);
+
+    this.noteFinalLight = new THREE.PointLight(0xffe0a0, 0, 2.5);
+    this.noteFinalLight.position.copy(this.noteFinal.position).y += 0.3;
+    this.group.add(this.noteFinalLight);
+
+    // Note 6: Phobos output log — near the central shape
+    this.notePhobos = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.28), noteMat.clone());
+    this.notePhobos.rotation.x = -Math.PI / 2;
+    this.notePhobos.position.set(-1.0, 0.02, -0.2);
+    this.notePhobos.visible = false;
+    this.group.add(this.notePhobos);
+
+    this.notePhobosLight = new THREE.PointLight(0xffe0a0, 0, 2.5);
+    this.notePhobosLight.position.copy(this.notePhobos.position).y += 0.3;
+    this.group.add(this.notePhobosLight);
   }
 
   colliders(): AABB[] {
@@ -197,6 +236,32 @@ export class Attic implements GameScene {
           setTimeout(() => scene.onDemoEnd(), 900);
         },
       },
+      // Note: final journal entry
+      {
+        id: 'note_final_entry',
+        box: aabbFromCenter(2.0, 0.02, -1.8, 0.15, 0.05, 0.15),
+        hint: 'read',
+        range: 2.5,
+        get enabled(): boolean { return scene.noteFinalEnabled && !scene.noteFinalRead; },
+        onInteract: () => {
+          scene.noteFinalRead = true;
+          scene.onNoteRead?.('note_final_entry');
+          scene.onNoteInteract?.('note_final_entry');
+        },
+      },
+      // Note: Phobos output log
+      {
+        id: 'note_phobos_log',
+        box: aabbFromCenter(-1.0, 0.02, -0.2, 0.15, 0.05, 0.15),
+        hint: 'read',
+        range: 2.5,
+        get enabled(): boolean { return scene.notePhobosEnabled && !scene.notePhobosRead; },
+        onInteract: () => {
+          scene.notePhobosRead = true;
+          scene.onNoteRead?.('note_phobos_log');
+          scene.onNoteInteract?.('note_phobos_log');
+        },
+      },
     ];
   }
 
@@ -204,6 +269,17 @@ export class Attic implements GameScene {
     switch (event.kind) {
       case 'flicker':
         this.beamLight.intensity = event.pattern === 'blackout' ? 0 : 0.45;
+        break;
+      case 'note_reveal':
+        if (event.noteId === 'note_final_entry') {
+          this.noteFinal.visible = true;
+          this.noteFinalEnabled = true;
+          this.noteFinalLight.intensity = 0.4;
+        } else if (event.noteId === 'note_phobos_log') {
+          this.notePhobos.visible = true;
+          this.notePhobosEnabled = true;
+          this.notePhobosLight.intensity = 0.4;
+        }
         break;
       default: break;
     }
@@ -227,6 +303,14 @@ export class Attic implements GameScene {
     // bulb swings very gently (as if air shifted)
     this.bulbChainGroup.rotation.x = Math.sin(this.time * 0.4) * 0.02;
     this.bulbChainGroup.rotation.z = Math.sin(this.time * 0.33 + 1) * 0.015;
+
+    // ── note light pulse ──
+    if (this.noteFinalEnabled && !this.noteFinalRead) {
+      this.noteFinalLight.intensity = 0.25 + Math.sin(this.time * 3) * 0.15;
+    }
+    if (this.notePhobosEnabled && !this.notePhobosRead) {
+      this.notePhobosLight.intensity = 0.25 + Math.sin(this.time * 3 + 1) * 0.15;
+    }
   }
 
   unload(): void {

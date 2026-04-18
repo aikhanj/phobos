@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { AABB, GameScene, GazeTarget, Interactable, SceneEvent, Trigger } from '@phobos/types';
+import type { AABB, GameScene, GazeTarget, Interactable, NoteId, SceneEvent, Trigger } from '@phobos/types';
 import { SCENE_CONFIGS } from '../sceneConfig';
 import { wallAABB, aabbFromCenter } from '../collision';
 
@@ -63,10 +63,24 @@ export class Bedroom implements GameScene {
   private time = 0;
   private pulseOffset = Math.random() * 100;
 
+  // ── narrative notes ──
+  private noteJournal!: THREE.Mesh;
+  private noteLetter!: THREE.Mesh;
+  private noteJournalLight!: THREE.PointLight;
+  private noteLetterLight!: THREE.PointLight;
+  private noteJournalEnabled = false;
+  private noteLetterEnabled = false;
+  private noteJournalRead = false;
+  private noteLetterRead = false;
+  private onNoteRead: ((noteId: NoteId) => void) | null = null;
+  private onNoteInteract: ((noteId: NoteId) => void) | null = null;
+
   private readonly onTransitionToAttic: () => void;
 
-  constructor(opts: { onTransitionToAttic: () => void }) {
+  constructor(opts: { onTransitionToAttic: () => void; onNoteRead?: (noteId: NoteId) => void; onNoteInteract?: (noteId: NoteId) => void }) {
     this.onTransitionToAttic = opts.onTransitionToAttic;
+    this.onNoteRead = opts.onNoteRead ?? null;
+    this.onNoteInteract = opts.onNoteInteract ?? null;
   }
 
   load(): void {
@@ -140,6 +154,31 @@ export class Bedroom implements GameScene {
 
     // ── ceiling hatch (initially sealed, unlocks near end of beat) ───
     this.buildCeilingHatch(0, h - 0.01, -0.8);
+
+    // ── narrative notes ──
+    const noteMat = new THREE.MeshLambertMaterial({ color: 0xe8dcc8, flatShading: true });
+
+    // Note 3: private journal — on the nightstand
+    this.noteJournal = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.2), noteMat.clone());
+    this.noteJournal.rotation.x = -Math.PI / 2;
+    this.noteJournal.position.set(-hw + 0.45, 0.62, -0.5);
+    this.noteJournal.visible = false;
+    this.group.add(this.noteJournal);
+
+    this.noteJournalLight = new THREE.PointLight(0xffe0a0, 0, 2.0);
+    this.noteJournalLight.position.copy(this.noteJournal.position).y += 0.25;
+    this.group.add(this.noteJournalLight);
+
+    // Note 4: wife's letter — near the toy chest
+    this.noteLetter = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 0.18), noteMat.clone());
+    this.noteLetter.rotation.x = -Math.PI / 2;
+    this.noteLetter.position.set(-hw + 0.5, 0.42, 1.2);
+    this.noteLetter.visible = false;
+    this.group.add(this.noteLetter);
+
+    this.noteLetterLight = new THREE.PointLight(0xffe0a0, 0, 2.0);
+    this.noteLetterLight.position.copy(this.noteLetter.position).y += 0.25;
+    this.group.add(this.noteLetterLight);
   }
 
   colliders(): AABB[] {
@@ -223,6 +262,32 @@ export class Bedroom implements GameScene {
         get enabled(): boolean { return scene.hatchUnlocked; },
         onInteract: () => scene.onTransitionToAttic(),
       },
+      // Note: private journal
+      {
+        id: 'note_private_journal',
+        box: aabbFromCenter(-hw + 0.45, 0.62, -0.5, 0.12, 0.05, 0.12),
+        hint: 'read',
+        range: 2.5,
+        get enabled(): boolean { return scene.noteJournalEnabled && !scene.noteJournalRead; },
+        onInteract: () => {
+          scene.noteJournalRead = true;
+          scene.onNoteRead?.('note_private_journal');
+          scene.onNoteInteract?.('note_private_journal');
+        },
+      },
+      // Note: wife's letter
+      {
+        id: 'note_wife_letter',
+        box: aabbFromCenter(-hw + 0.5, 0.42, 1.2, 0.12, 0.05, 0.12),
+        hint: 'read',
+        range: 2.5,
+        get enabled(): boolean { return scene.noteLetterEnabled && !scene.noteLetterRead; },
+        onInteract: () => {
+          scene.noteLetterRead = true;
+          scene.onNoteRead?.('note_wife_letter');
+          scene.onNoteInteract?.('note_wife_letter');
+        },
+      },
     ];
   }
 
@@ -256,6 +321,17 @@ export class Bedroom implements GameScene {
         break;
       case 'lock':
         if (event.propId === 'bedroom_door') this.entryDoorClosed = true;
+        break;
+      case 'note_reveal':
+        if (event.noteId === 'note_private_journal') {
+          this.noteJournal.visible = true;
+          this.noteJournalEnabled = true;
+          this.noteJournalLight.intensity = 0.4;
+        } else if (event.noteId === 'note_wife_letter') {
+          this.noteLetter.visible = true;
+          this.noteLetterEnabled = true;
+          this.noteLetterLight.intensity = 0.4;
+        }
         break;
       default: break;
     }
@@ -298,6 +374,14 @@ export class Bedroom implements GameScene {
       this.hatchOpenAmount += dt * 0.5;
       const mat = this.ceilingHatch.material as THREE.MeshBasicMaterial;
       mat.color.setScalar(Math.max(0, 0.08 - this.hatchOpenAmount * 0.08));
+    }
+
+    // ── note light pulse ──
+    if (this.noteJournalEnabled && !this.noteJournalRead) {
+      this.noteJournalLight.intensity = 0.25 + Math.sin(this.time * 3) * 0.15;
+    }
+    if (this.noteLetterEnabled && !this.noteLetterRead) {
+      this.noteLetterLight.intensity = 0.25 + Math.sin(this.time * 3 + 1) * 0.15;
     }
   }
 
