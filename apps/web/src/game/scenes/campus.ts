@@ -27,15 +27,29 @@ export class Campus implements GameScene {
   private lamps: Array<{ light: THREE.PointLight; phase: number }> = [];
   private canopy!: THREE.Mesh;
   private time = 0;
+  private beacon: { light: THREE.PointLight; x: number; z: number } | null = null;
+  private clubDoorPositions = new Map<ClubId, THREE.Vector3>();
 
   private readonly onEnterClub: (id: ClubId) => void;
   private readonly lockedClubs: Set<ClubId>;
+  private readonly nextObjective: ClubId | null;
   private readonly bounds: AABB[] = [];
   private readonly triggerBoxes: Trigger[] = [];
 
-  constructor(opts: { onEnterClub: (id: ClubId) => void; lockedClubs?: ClubId[] }) {
+  constructor(opts: {
+    onEnterClub: (id: ClubId) => void;
+    lockedClubs?: ClubId[];
+    nextObjective?: ClubId | null;
+  }) {
     this.onEnterClub = opts.onEnterClub;
     this.lockedClubs = new Set(opts.lockedClubs ?? []);
+    this.nextObjective = opts.nextObjective ?? null;
+  }
+
+  /** World-space position just outside the given club's front door (or null). */
+  getClubDoorPosition(id: ClubId): THREE.Vector3 | null {
+    const v = this.clubDoorPositions.get(id);
+    return v ? v.clone() : null;
   }
 
   load(): void {
@@ -74,6 +88,8 @@ export class Campus implements GameScene {
     });
     this.group.clear();
     this.lamps = [];
+    this.beacon = null;
+    this.clubDoorPositions.clear();
     this.bounds.length = 0;
     this.triggerBoxes.length = 0;
   }
@@ -88,6 +104,12 @@ export class Campus implements GameScene {
       const flicker = Math.sin(this.time * 5 + lamp.phase) * 0.15;
       const drop = Math.random() < 0.004 ? 0.15 : 1.0;
       lamp.light.intensity = Math.max(0, base * (1 + flicker) * drop);
+    }
+    // Beacon pulse on the next chain-objective door — slow breathing so it
+    // reads as "welcoming" rather than "alarm". Never blinks, never flickers.
+    if (this.beacon) {
+      const pulse = 2.2 + Math.sin(this.time * 1.6) * 0.6;
+      this.beacon.light.intensity = pulse;
     }
   }
 
@@ -327,6 +349,28 @@ export class Campus implements GameScene {
         onEnter: () => this.onEnterClub(id),
         once: true,
       });
+
+      // Record the door world position so main.ts can spatialize TTS / nudges
+      // in the direction of the next chain target.
+      this.clubDoorPositions.set(id, new THREE.Vector3(x, 1.6, triggerZ));
+
+      // If this is the next chain objective, drop a brighter pulsing porch
+      // light just in front of the threshold. Subtle — the player reads it as
+      // "this one is awake" rather than a quest marker.
+      if (this.nextObjective === id) {
+        const beaconZ = z + frontNormalZ * (d / 2 + 0.55);
+        const beaconLight = new THREE.PointLight(0xffd890, 2.4, 11, 1.6);
+        beaconLight.position.set(x, 2.6, beaconZ);
+        this.group.add(beaconLight);
+        // Visible ember — tiny emissive dot above the door to catch the eye.
+        const ember = makeEmissive(
+          0.16, 0.16, 0.04,
+          new THREE.Vector3(x, 2.85, z + frontNormalZ * (d / 2 + 0.09)),
+          0xffe0a8,
+        );
+        this.group.add(ember);
+        this.beacon = { light: beaconLight, x, z: beaconZ };
+      }
     } else {
       // Locked visual — dark boards nailed across the door area.
       const doorZ = z + frontNormalZ * (d / 2 + 0.08);
