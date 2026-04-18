@@ -10,6 +10,7 @@ const SOURCE_COLORS: Record<string, string> = {
 
 export class CornerBox {
   private container: HTMLDivElement;
+  private videoWrap: HTMLDivElement;
   private videoElement: HTMLVideoElement;
   private fearBar: HTMLDivElement;
   private bpmValue: HTMLSpanElement;
@@ -31,20 +32,29 @@ export class CornerBox {
       overflow: 'hidden',
     });
 
-    // Webcam feed
+    // Webcam feed — wrapper hosts overlays (webcam ghost) on top of <video>
+    this.videoWrap = document.createElement('div');
+    Object.assign(this.videoWrap.style, {
+      position: 'relative',
+      width: '100%',
+      height: '170px',
+      borderBottom: '1px solid #222',
+      overflow: 'hidden',
+    });
+
     this.videoElement = document.createElement('video');
     this.videoElement.autoplay = true;
     this.videoElement.muted = true;
     this.videoElement.playsInline = true;
     Object.assign(this.videoElement.style, {
       width: '100%',
-      height: '170px',
+      height: '100%',
       objectFit: 'cover',
       display: 'block',
       transform: 'scaleX(-1)',
       filter: 'grayscale(0.5) contrast(1.3)',
-      borderBottom: '1px solid #222',
     });
+    this.videoWrap.appendChild(this.videoElement);
 
     // Stats bar (fear + BPM side by side)
     const statsBar = document.createElement('div');
@@ -132,7 +142,7 @@ export class CornerBox {
     });
 
     // Assemble
-    this.container.appendChild(this.videoElement);
+    this.container.appendChild(this.videoWrap);
     this.container.appendChild(statsBar);
     this.container.appendChild(this.logTerminal);
     document.body.appendChild(this.container);
@@ -141,6 +151,12 @@ export class CornerBox {
   attachStream(stream: MediaStream): void {
     this.videoElement.srcObject = stream;
   }
+
+  /** The <video> element showing the webcam feed. */
+  getVideoElement(): HTMLVideoElement { return this.videoElement; }
+
+  /** Relative-positioned wrapper around the video — mount overlays here. */
+  getVideoContainer(): HTMLDivElement { return this.videoWrap; }
 
   updateFearScore(score: number): void {
     const clamped = Math.max(0, Math.min(1, score));

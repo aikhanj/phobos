@@ -9,6 +9,9 @@ export class FearScoreCalculator {
       gazeAversion: 0,
       flinchCount: 0,
       timeInScene: 0,
+      lookStillness: 0,
+      retreatVelocity: 0,
+      gazeDwellMs: {},
       timestamp: Date.now(),
     };
   }
