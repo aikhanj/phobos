@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { AABB, GameScene, Trigger } from '@phobos/types';
+import type { AABB, GameScene, Interactable, Trigger } from '@phobos/types';
 import { SCENE_CONFIGS } from '../../sceneConfig';
 import { aabbFromCenter } from '../../collision';
 import {
@@ -7,6 +7,7 @@ import {
   makeRug, makeExitDoor, makeWindow, makeFramedPicture,
   makeBookshelf, makeArmchair, addAbandonment,
 } from './_shared';
+import { createNoteMesh } from '../../noteMesh';
 
 /**
  * TOWER CLUB INTERIOR — great hall with heavy timber trusses, oak panelling,
@@ -24,9 +25,16 @@ export class TowerInterior implements GameScene {
   private bounds: AABB[] = [];
   private triggerBoxes: Trigger[] = [];
   private fireGlow!: THREE.PointLight;
+  private pickup!: THREE.Mesh;
+  private pickupLight!: THREE.PointLight;
+  private pickupCollected = false;
   private readonly onExit: () => void;
+  private onPickup: (() => void) | null = null;
 
-  constructor(opts: { onExit: () => void }) { this.onExit = opts.onExit; }
+  constructor(opts: { onExit: () => void; onPickup?: () => void }) {
+    this.onExit = opts.onExit;
+    this.onPickup = opts.onPickup ?? null;
+  }
 
   load(): void {
     const cfg = SCENE_CONFIGS.tower;
@@ -113,6 +121,15 @@ export class TowerInterior implements GameScene {
     this.group.add(makeBox(0.55, 0.6, 0.55, new THREE.Vector3(3.5, 0.3, -hd + 1.5), 'wood_dark'));
     this.bounds.push(aabbFromCenter(3.5, 0.3, -hd + 1.5, 0.3, 0.3, 0.3));
 
+    // Pickup: Bicker pamphlet on the dining table.
+    this.pickup = createNoteMesh(0.2, 0.28);
+    this.pickup.rotation.x = -Math.PI / 2;
+    this.pickup.position.set(0, 0.90, 0);
+    this.group.add(this.pickup);
+    this.pickupLight = new THREE.PointLight(0xffe0a0, 0.4, 2);
+    this.pickupLight.position.set(0, 1.2, 0);
+    this.group.add(this.pickupLight);
+
     // Abandonment debris.
     addAbandonment(this.group, w, d, h);
 
@@ -120,7 +137,7 @@ export class TowerInterior implements GameScene {
     makeExitDoor(this.group, 0, hd - 0.05, 1.4, 2.3, -1, 0x120804, 0x2a1408);
     this.triggerBoxes.push({
       id: 'exit_to_campus',
-      box: aabbFromCenter(0, 1.0, hd - 0.25, 1.2, 1.2, 0.35),
+      box: aabbFromCenter(0, 1.0, hd - 0.5, 3.0, 1.2, 0.8),
       onEnter: () => this.onExit(),
       once: true,
     });
@@ -146,8 +163,32 @@ export class TowerInterior implements GameScene {
       const f = 0.85 + Math.sin(this.time * 11) * 0.06 + Math.sin(this.time * 4.3) * 0.04;
       this.fireGlow.intensity = f;
     }
+    // Pickup light pulse.
+    if (!this.pickupCollected) {
+      this.pickupLight.intensity = 0.3 + Math.sin(this.time * 2.5) * 0.15;
+    }
   }
 
   colliders(): AABB[] { return this.bounds; }
   triggers(): Trigger[] { return this.triggerBoxes; }
+
+  interactables(): Interactable[] {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const scene = this;
+    return [
+      {
+        id: 'pickup_tower',
+        box: aabbFromCenter(0, 0.90, 0, 0.2, 0.1, 0.2),
+        hint: 'read',
+        range: 2.5,
+        get enabled(): boolean { return !scene.pickupCollected; },
+        onInteract: () => {
+          scene.pickupCollected = true;
+          scene.pickup.visible = false;
+          scene.pickupLight.intensity = 0;
+          scene.onPickup?.();
+        },
+      },
+    ];
+  }
 }

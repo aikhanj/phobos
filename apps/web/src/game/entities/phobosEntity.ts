@@ -6,12 +6,12 @@ import { pickPrompt } from './promptLibrary';
 
 const OPACITY_BY_VISIBILITY: Record<EntityVisibility, number> = {
   hidden: 0,
-  peripheral: 0.25,
-  revealed: 0.7,
-  close: 0.92,
+  peripheral: 0.45,
+  revealed: 0.8,
+  close: 0.95,
 };
 
-const LERP_SPEED = 3.5; // per-second opacity lerp
+const LERP_SPEED = 4.5; // per-second opacity lerp (faster = more startling)
 
 /**
  * Persistent embodied presence. One instance per game session, follows the

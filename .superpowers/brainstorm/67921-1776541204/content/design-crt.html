@@ -1,0 +1,56 @@
+<h2>Design Section 3: CRT Post-Processing</h2>
+<p class="subtitle">Full-screen shader pass that transforms the clean render into a degraded CRT signal</p>
+
+<div class="section">
+  <h3>How It Works</h3>
+  <div style="background: #111; border: 1px solid #333; border-radius: 8px; padding: 16px; margin: 12px 0; font-size: 14px; color: #ccc; line-height: 1.6;">
+    <p style="margin: 0 0 12px 0;">After Three.js renders the scene to the half-res buffer, an <code>EffectComposer</code> runs a single custom <code>ShaderPass</code> that applies all CRT effects in one fragment shader. This is cheap &mdash; it's just a full-screen quad with texture reads.</p>
+    <p style="margin: 0;"><strong>New file: <code>apps/web/src/game/postProcessing.ts</code></strong><br>
+    Exports a <code>createCRTComposer(renderer, scene, camera)</code> function. The engine calls <code>composer.render()</code> instead of <code>renderer.render()</code>.</p>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Effects Included</h3>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0;">
+
+    <div style="background: #1a1a2e; border-radius: 6px; padding: 12px;">
+      <div style="font-weight: bold; color: #ff8888; margin-bottom: 6px;">Scanlines</div>
+      <p style="margin: 0; color: #aaa; font-size: 13px; line-height: 1.6;">Alternating dark horizontal lines every 2-3 pixels. Opacity modulated by a sine wave tied to screen Y. Subtle enough to not obscure gameplay but visible enough to read as "CRT."</p>
+    </div>
+
+    <div style="background: #1a1a2e; border-radius: 6px; padding: 12px;">
+      <div style="font-weight: bold; color: #88ff88; margin-bottom: 6px;">Vignette</div>
+      <p style="margin: 0; color: #aaa; font-size: 13px; line-height: 1.6;">Darkened edges &mdash; radial falloff from center. Focuses the player's eye on the center of the screen and hides edge geometry. Classic horror framing.</p>
+    </div>
+
+    <div style="background: #1a1a2e; border-radius: 6px; padding: 12px;">
+      <div style="font-weight: bold; color: #8888ff; margin-bottom: 6px;">Chromatic Aberration</div>
+      <p style="margin: 0; color: #aaa; font-size: 13px; line-height: 1.6;">R/G/B channels sampled at slightly offset UVs, splitting at the edges. Simulates a cheap CRT tube with imperfect electron beam convergence. Intensifies during scare events.</p>
+    </div>
+
+    <div style="background: #1a1a2e; border-radius: 6px; padding: 12px;">
+      <div style="font-weight: bold; color: #ffff88; margin-bottom: 6px;">Film Grain</div>
+      <p style="margin: 0; color: #aaa; font-size: 13px; line-height: 1.6;">Per-frame random noise overlay. Low opacity (~0.06) but adds analog texture to every pixel. Driven by a time uniform so it's never static. Can intensify with fear_score.</p>
+    </div>
+
+  </div>
+</div>
+
+<div class="section">
+  <h3>Horror Integration</h3>
+  <div style="background: #111; border: 1px solid #333; border-radius: 8px; padding: 16px; margin: 12px 0; font-size: 14px; color: #ccc; line-height: 1.6;">
+    <p style="margin: 0 0 8px 0;">The CRT shader exposes uniforms that the scare director can drive:</p>
+    <ul style="padding-left: 20px; margin: 8px 0; color: #aaa;">
+      <li><code>uAberrationStrength</code> &mdash; ramps up during scares (0.002 &rarr; 0.01)</li>
+      <li><code>uGrainIntensity</code> &mdash; increases with fear_score</li>
+      <li><code>uScanlineWeight</code> &mdash; can pulse heavier for TV-static moments</li>
+      <li><code>uVignetteRadius</code> &mdash; tightens during high tension to create tunnel vision</li>
+    </ul>
+    <p style="margin: 8px 0 0 0; color: #888; font-size: 13px;">These tie directly into the existing <code>SceneConfig</code> system and the agent tick loop.</p>
+  </div>
+</div>
+
+<div style="background: #0a1a0a; border: 1px solid #2a4a2a; border-radius: 8px; padding: 16px; margin-top: 16px;">
+  <p style="margin: 0; color: #8a8; font-size: 14px;"><strong>Does the CRT post-processing design look right?</strong> This is the last section &mdash; after this I'll write the full spec. Let me know in the terminal.</p>
+</div>

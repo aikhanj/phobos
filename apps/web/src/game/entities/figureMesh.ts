@@ -1,46 +1,91 @@
 import * as THREE from 'three';
 
 /**
- * Builds a tall dark silhouette for Phobos. Three.js PS1 aesthetic: flat-shaded
- * Lambert on a crude body+head stack so the figure reads as humanoid at a glance
- * but stays cheap to render and lets fog eat the edges.
+ * Builds an unnervingly tall, distorted silhouette for Phobos. Not human
+ * proportions — too tall, too thin, wrong. Arms that hang too low. A head
+ * that tilts. The PS1 flat-shading makes it read as a corrupted model,
+ * something the game engine wasn't meant to render.
  *
- * The group faces +Z at rest; billboardToCamera() rotates it on Y each frame so
- * the silhouette stays flat-on regardless of approach angle.
+ * Total height: ~2.8m (towering over the 1.6m player camera).
+ * The group faces +Z at rest; billboardToCamera() rotates it on Y each frame.
  */
 export function createFigureMesh(): THREE.Group {
   const group = new THREE.Group();
   group.name = 'phobos_figure';
 
-  // Body — narrow vertical slab, slight taper via scale.
-  const bodyGeo = new THREE.BoxGeometry(0.45, 1.3, 0.28);
-  const bodyMat = new THREE.MeshLambertMaterial({
-    color: 0x0a0a0c,
+  const baseMat = new THREE.MeshLambertMaterial({
+    color: 0x0e0e12,
     flatShading: true,
     transparent: true,
     opacity: 0,
-    fog: true,
+    fog: false,
   });
-  const body = new THREE.Mesh(bodyGeo, bodyMat);
-  body.position.y = 0.7;
-  body.scale.set(1, 1, 1);
-  group.add(body);
 
-  // Head — small cube atop body.
-  const headGeo = new THREE.BoxGeometry(0.26, 0.28, 0.26);
-  const headMat = bodyMat.clone();
-  const head = new THREE.Mesh(headGeo, headMat);
-  head.position.y = 1.5;
+  // Torso — tall, narrow, wrong proportions. Too thin for its height.
+  const torso = new THREE.Mesh(
+    new THREE.BoxGeometry(0.5, 1.8, 0.25),
+    baseMat,
+  );
+  torso.position.y = 1.2;
+  group.add(torso);
+
+  // Head — slightly too small for the body. Tilted.
+  const headMat = baseMat.clone();
+  headMat.color.setHex(0x121218);
+  const head = new THREE.Mesh(
+    new THREE.BoxGeometry(0.24, 0.3, 0.24),
+    headMat,
+  );
+  head.position.set(0.04, 2.25, 0);
+  head.rotation.z = 0.15; // slight tilt — uncanny
   group.add(head);
 
-  // Hair / shroud — slightly wider flat plane behind the head so the silhouette
-  // reads as elderly-with-shawl from any angle.
-  const shawlGeo = new THREE.BoxGeometry(0.55, 0.7, 0.12);
-  const shawlMat = bodyMat.clone();
-  shawlMat.color.setHex(0x050506);
-  const shawl = new THREE.Mesh(shawlGeo, shawlMat);
-  shawl.position.set(0, 1.15, -0.08);
-  group.add(shawl);
+  // Shroud / drape — wider than the body, hangs from shoulders.
+  // Reads as something draped over the figure, obscuring the shape.
+  const shroudMat = baseMat.clone();
+  shroudMat.color.setHex(0x080810);
+  const shroud = new THREE.Mesh(
+    new THREE.BoxGeometry(0.75, 1.4, 0.15),
+    shroudMat,
+  );
+  shroud.position.set(0, 1.6, -0.06);
+  group.add(shroud);
+
+  // Left arm — hangs too low, past where a human arm would stop.
+  const armMat = baseMat.clone();
+  armMat.color.setHex(0x0a0a10);
+  const leftArm = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 1.1, 0.12),
+    armMat,
+  );
+  leftArm.position.set(-0.35, 0.75, 0);
+  leftArm.rotation.z = 0.08;
+  group.add(leftArm);
+
+  // Right arm — slightly different length (asymmetry = wrong)
+  const rightArm = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 1.25, 0.12),
+    armMat.clone(),
+  );
+  rightArm.position.set(0.35, 0.65, 0);
+  rightArm.rotation.z = -0.05;
+  group.add(rightArm);
+
+  // Legs — visible beneath the shroud. Slightly splayed.
+  const legMat = baseMat.clone();
+  const leftLeg = new THREE.Mesh(
+    new THREE.BoxGeometry(0.14, 0.7, 0.14),
+    legMat,
+  );
+  leftLeg.position.set(-0.12, 0.18, 0);
+  group.add(leftLeg);
+
+  const rightLeg = new THREE.Mesh(
+    new THREE.BoxGeometry(0.14, 0.7, 0.14),
+    legMat.clone(),
+  );
+  rightLeg.position.set(0.12, 0.18, 0);
+  group.add(rightLeg);
 
   group.visible = false;
   return group;

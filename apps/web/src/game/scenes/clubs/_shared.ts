@@ -485,4 +485,10 @@ export function makeExitDoor(
   );
   knob.position.set(x + w * 0.35, h * 0.5, fz + facingNormalZ * 0.03);
   group.add(knob);
+  // Warm exit glow so the player can find the door in the fog.
+  const exitGlow = new THREE.PointLight(0xff9050, 1.2, 8, 1.8);
+  exitGlow.position.set(x, h * 0.7, z + facingNormalZ * 0.5);
+  group.add(exitGlow);
+  // Visible "EXIT" strip above the door — emissive so it cuts through fog.
+  group.add(makeEmissive(0.6, 0.15, 0.04, new THREE.Vector3(x, h + 0.2, fz), 0xcc3030));
 }

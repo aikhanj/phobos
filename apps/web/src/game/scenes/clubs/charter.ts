@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { AABB, GameScene, Trigger } from '@phobos/types';
+import type { AABB, GameScene, Interactable, Trigger } from '@phobos/types';
 import { SCENE_CONFIGS } from '../../sceneConfig';
 import { aabbFromCenter } from '../../collision';
 import {
@@ -25,9 +25,16 @@ export class CharterInterior implements GameScene {
   private bounds: AABB[] = [];
   private triggerBoxes: Trigger[] = [];
   private fireGlow!: THREE.PointLight;
+  private pickup!: THREE.Mesh;
+  private pickupLight!: THREE.PointLight;
+  private pickupCollected = false;
   private readonly onExit: () => void;
+  private onPickup: (() => void) | null = null;
 
-  constructor(opts: { onExit: () => void }) { this.onExit = opts.onExit; }
+  constructor(opts: { onExit: () => void; onPickup?: () => void }) {
+    this.onExit = opts.onExit;
+    this.onPickup = opts.onPickup ?? null;
+  }
 
   load(): void {
     const cfg = SCENE_CONFIGS.charter;
@@ -153,13 +160,20 @@ export class CharterInterior implements GameScene {
 
     makeRug(this.group, 0, 0, 5.5, 9.5, 0x4a1818, 0x6a2820);
 
+    // Pickup: Place card at the head of the dining table.
+    this.pickup = makeBox(0.12, 0.08, 0.06, new THREE.Vector3(-4.5, 0.93, 0), 0xf0e8d0);
+    this.group.add(this.pickup);
+    this.pickupLight = new THREE.PointLight(0xffe0a0, 0.4, 2);
+    this.pickupLight.position.set(-4.5, 1.23, 0);
+    this.group.add(this.pickupLight);
+
     // Abandonment debris.
     addAbandonment(this.group, w, d, h);
 
     makeExitDoor(this.group, 0, hd - 0.05, 1.6, 2.5, -1, 0x3a2418, 0xb09848);
     this.triggerBoxes.push({
       id: 'exit_to_campus',
-      box: aabbFromCenter(0, 1.0, hd - 0.25, 1.4, 1.2, 0.35),
+      box: aabbFromCenter(0, 1.0, hd - 0.5, 3.0, 1.2, 0.8),
       onEnter: () => this.onExit(),
       once: true,
     });
@@ -181,8 +195,32 @@ export class CharterInterior implements GameScene {
   update(dt: number): void {
     this.time += dt;
     if (this.fireGlow) this.fireGlow.intensity = 0.7 + Math.sin(this.time * 9) * 0.04;
+    // Pickup light pulse.
+    if (!this.pickupCollected) {
+      this.pickupLight.intensity = 0.3 + Math.sin(this.time * 2.5) * 0.15;
+    }
   }
 
   colliders(): AABB[] { return this.bounds; }
   triggers(): Trigger[] { return this.triggerBoxes; }
+
+  interactables(): Interactable[] {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const scene = this;
+    return [
+      {
+        id: 'pickup_charter',
+        box: aabbFromCenter(-4.5, 0.93, 0, 0.2, 0.1, 0.2),
+        hint: 'read',
+        range: 2.5,
+        get enabled(): boolean { return !scene.pickupCollected; },
+        onInteract: () => {
+          scene.pickupCollected = true;
+          scene.pickup.visible = false;
+          scene.pickupLight.intensity = 0;
+          scene.onPickup?.();
+        },
+      },
+    ];
+  }
 }

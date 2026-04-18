@@ -30,7 +30,7 @@ const CRTShader = {
     uTime: { value: 0.0 },
     uResolution: { value: new THREE.Vector2(960, 540) },
     uScanlineWeight: { value: 0.08 },
-    uVignetteRadius: { value: 0.85 },
+    uVignetteRadius: { value: 0.72 },
     uAberrationStrength: { value: 0.003 },
     uGrainIntensity: { value: 0.06 },
   },

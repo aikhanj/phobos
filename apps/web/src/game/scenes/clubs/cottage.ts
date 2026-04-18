@@ -160,7 +160,7 @@ export class CottageInterior implements GameScene {
     makeExitDoor(this.group, 0, hd - 0.05, 1.6, 2.5, -1, 0x3a2418, 0xb09848);
     this.triggerBoxes.push({
       id: 'exit_to_campus',
-      box: aabbFromCenter(0, 1.0, hd - 0.25, 1.4, 1.2, 0.35),
+      box: aabbFromCenter(0, 1.0, hd - 0.5, 3.0, 1.2, 0.8),
       onEnter: () => this.onExit(),
       once: true,
     });

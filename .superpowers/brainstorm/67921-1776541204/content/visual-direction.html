@@ -1,0 +1,46 @@
+<h2>What visual direction do you want?</h2>
+<p class="subtitle">"Better graphics" can mean different things. Which of these vibes fits what you're going for?</p>
+
+<div class="options">
+  <div class="option" data-choice="ps1-authentic" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>PS1-Authentic Horror</h3>
+      <p><strong>Think: Silent Hill 1, Resident Evil 1</strong></p>
+      <p>Low-res textures (64x64, 128x128) on everything. Affine texture warping. Vertex jitter/wobble. Dithered transparency. CRT post-processing (scanlines, vignette, chromatic aberration). The PS1 <em>couldn't</em> render cleanly &mdash; lean into that.</p>
+      <div style="margin-top: 12px; padding: 10px; background: #1a1a2e; border-radius: 6px; font-size: 13px; color: #8888aa;">
+        <strong>Adds:</strong> Procedural textures on all surfaces, vertex jitter shader, CRT post-processing, film grain, dithered fog<br>
+        <strong>Keeps:</strong> Half-res render, flat shading, no antialiasing<br>
+        <strong>Vibe:</strong> Nostalgic, uncanny, "something is wrong with the world itself"
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="modern-lofi" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Modern Lo-Fi Horror</h3>
+      <p><strong>Think: Puppet Combo, Iron Lung, Paratopic</strong></p>
+      <p>Textured surfaces but deliberately degraded. No vertex jitter. Pixelated but with better lighting (emissive glow, fog gradients). VHS-style post-processing instead of CRT. Keeps the lo-fi feel but doesn't try to be a PS1.</p>
+      <div style="margin-top: 12px; padding: 10px; background: #1a1a2e; border-radius: 6px; font-size: 13px; color: #8888aa;">
+        <strong>Adds:</strong> Procedural textures, emissive materials, VHS post-processing (noise, tracking lines), improved fog<br>
+        <strong>Keeps:</strong> Half-res render, pixelated upscale, flat shading<br>
+        <strong>Vibe:</strong> Found-footage, oppressive, "you shouldn't be watching this"
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="textured-clean" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Textured + Clean (No Retro Filter)</h3>
+      <p><strong>Think: Better Minecraft with horror lighting</strong></p>
+      <p>Add textures and better materials to the existing geometry, but skip retro post-processing. Full resolution render. Smooth shading where it matters. Focus on atmosphere through lighting and fog rather than visual degradation.</p>
+      <div style="margin-top: 12px; padding: 10px; background: #1a1a2e; border-radius: 6px; font-size: 13px; color: #8888aa;">
+        <strong>Adds:</strong> Procedural textures, Phong materials with specularity, full-res render, better geometry<br>
+        <strong>Removes:</strong> Half-res pixelation, flat shading<br>
+        <strong>Vibe:</strong> Modern indie horror, atmospheric, "this basement is real"
+      </div>
+    </div>
+  </div>
+</div>

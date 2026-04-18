@@ -245,6 +245,16 @@ export class Engine {
   /** Current targeted interactable's id, or null. Useful for conditional voice lines. */
   getCurrentInteractable(): string | null { return this.currentInteractableId; }
 
+  /** Set CRT vignette radius (lower = more vignette). */
+  setVignette(radius: number): void {
+    this.crtUniforms.uVignetteRadius.value = radius;
+  }
+
+  /** Set CRT grain intensity. */
+  setGrain(intensity: number): void {
+    this.crtUniforms.uGrainIntensity.value = intensity;
+  }
+
   /** Apply fog + ambient from a scene config. */
   applyFog(near: number, far: number, color?: number): void {
     if (this.scene.fog instanceof THREE.Fog) {

@@ -1,0 +1,77 @@
+<h2>Design Section 1: Procedural Texture System</h2>
+<p class="subtitle">New module <code>apps/web/src/game/textures.ts</code> &mdash; canvas-drawn textures for every surface type</p>
+
+<div class="section">
+  <h3>How It Works</h3>
+  <div style="background: #111; border: 1px solid #333; border-radius: 8px; padding: 16px; margin: 12px 0; font-size: 14px; color: #ccc; line-height: 1.6;">
+    <p style="margin: 0 0 12px 0;">A single <code>textures.ts</code> module exports a <code>getTexture(type)</code> function that returns cached <code>THREE.CanvasTexture</code> instances. Each texture is drawn procedurally on an offscreen canvas at PS1-authentic resolution (64&times;64 or 128&times;128), with <code>NearestFilter</code> and <code>RepeatWrapping</code> so they tile and stay pixelated.</p>
+    <p style="margin: 0;">Scenes call <code>getTexture('wood_dark')</code> instead of passing a hex color. The <code>makeWall</code> and <code>makeProp</code> helpers get updated to accept an optional texture parameter.</p>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Texture Types Needed</h3>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0;">
+
+    <div style="background: #1a1a2e; border-radius: 6px; padding: 12px;">
+      <div style="font-weight: bold; color: #e0d0c0; margin-bottom: 6px;">Walls</div>
+      <ul style="margin: 0; padding-left: 16px; color: #aaa; font-size: 13px; line-height: 1.8;">
+        <li><code>concrete</code> &mdash; mottled grey, subtle cracks (basement)</li>
+        <li><code>concrete_dark</code> &mdash; darker variant, damp stains</li>
+        <li><code>wallpaper</code> &mdash; faded stripe pattern (bedroom)</li>
+        <li><code>wallpaper_torn</code> &mdash; same but with ripped sections</li>
+        <li><code>wood_panel</code> &mdash; vertical plank lines (attic)</li>
+      </ul>
+    </div>
+
+    <div style="background: #1a1a2e; border-radius: 6px; padding: 12px;">
+      <div style="font-weight: bold; color: #e0d0c0; margin-bottom: 6px;">Floors</div>
+      <ul style="margin: 0; padding-left: 16px; color: #aaa; font-size: 13px; line-height: 1.8;">
+        <li><code>concrete_floor</code> &mdash; cracked, dirty (basement)</li>
+        <li><code>wood_floor</code> &mdash; plank lines, worn grain (bedroom/attic)</li>
+      </ul>
+    </div>
+
+    <div style="background: #1a1a2e; border-radius: 6px; padding: 12px;">
+      <div style="font-weight: bold; color: #e0d0c0; margin-bottom: 6px;">Props</div>
+      <ul style="margin: 0; padding-left: 16px; color: #aaa; font-size: 13px; line-height: 1.8;">
+        <li><code>wood_dark</code> &mdash; dark grain (crates, shelves, furniture)</li>
+        <li><code>wood_light</code> &mdash; lighter variant (bed frame, chair)</li>
+        <li><code>metal</code> &mdash; brushed, tarnished (pipes, lantern)</li>
+        <li><code>fabric</code> &mdash; cross-hatch weave (curtains, rug, sheets)</li>
+        <li><code>plaster</code> &mdash; rough, crumbly (ceiling)</li>
+      </ul>
+    </div>
+
+    <div style="background: #1a1a2e; border-radius: 6px; padding: 12px;">
+      <div style="font-weight: bold; color: #e0d0c0; margin-bottom: 6px;">Special</div>
+      <ul style="margin: 0; padding-left: 16px; color: #aaa; font-size: 13px; line-height: 1.8;">
+        <li><code>door</code> &mdash; paneled wood with frame lines</li>
+        <li><code>brick</code> &mdash; exposed brick (basement accent)</li>
+        <li><code>tile</code> &mdash; cracked ceramic (if bathroom area)</li>
+      </ul>
+    </div>
+
+  </div>
+</div>
+
+<div class="section">
+  <h3>Integration With Existing Code</h3>
+  <div style="background: #111; border: 1px solid #333; border-radius: 8px; padding: 16px; margin: 12px 0; font-size: 14px; color: #ccc; line-height: 1.6;">
+    <p style="margin: 0 0 8px 0;"><strong>Before:</strong></p>
+    <code style="color: #8aff8a; background: #0a0a0a; padding: 4px 8px; border-radius: 4px; display: block; margin-bottom: 12px;">
+      this.makeProp(0.6, 0.6, 0.6, pos, 0x2a1f14) &nbsp;// solid brown box
+    </code>
+    <p style="margin: 0 0 8px 0;"><strong>After:</strong></p>
+    <code style="color: #8aff8a; background: #0a0a0a; padding: 4px 8px; border-radius: 4px; display: block;">
+      this.makeProp(0.6, 0.6, 0.6, pos, 'wood_dark') &nbsp;// textured crate
+    </code>
+    <p style="margin: 12px 0 0 0; color: #888; font-size: 13px;">
+      <code>makeProp</code> and <code>makeWall</code> accept either a hex color (backwards compatible) or a texture name string. When given a string, they call <code>getTexture()</code> internally.
+    </p>
+  </div>
+</div>
+
+<div style="background: #0a1a0a; border: 1px solid #2a4a2a; border-radius: 8px; padding: 16px; margin-top: 16px;">
+  <p style="margin: 0; color: #8a8; font-size: 14px;"><strong>Does this texture system design look right so far?</strong> Let me know in the terminal, then I'll move on to vertex jitter.</p>
+</div>

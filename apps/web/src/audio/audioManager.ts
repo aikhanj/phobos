@@ -1,6 +1,6 @@
 import type { SoundId } from '@phobos/types';
 
-type ScenePreset = 'basement' | 'bedroom' | 'attic';
+type ScenePreset = 'basement' | 'bedroom' | 'attic' | 'campus' | 'club';
 
 /**
  * Web Audio ambient engine. All sound is synthesized in-browser — no asset
@@ -546,7 +546,11 @@ export class AudioManager {
   /** Random infrequent creaks — reads as a "lived-in" room. Rate scales with fear. */
   private startCreakScheduler(): void {
     const schedule = () => {
-      const presetRate = this.currentPreset === 'attic' ? 4 : this.currentPreset === 'bedroom' ? 7 : 10;
+      const presetRate = this.currentPreset === 'attic' ? 4
+        : this.currentPreset === 'bedroom' ? 7
+        : this.currentPreset === 'club' ? 8
+        : this.currentPreset === 'campus' ? 14
+        : 10;
       // mean inter-arrival presetRate seconds, scaled by fear multiplier
       const scaled = presetRate * this.creakRateMultiplier;
       const next = scaled * 1000 + Math.random() * scaled * 1000;
@@ -579,6 +583,8 @@ const AMBIENT_PRESETS: Record<ScenePreset, AmbientProfile> = {
   basement: { rumbleLP: 120, rumbleGain: 0.24, hissHP: 2400, hissGain: 0.05, droneGain: 0.04 },
   bedroom:  { rumbleLP: 90,  rumbleGain: 0.14, hissHP: 3200, hissGain: 0.07, droneGain: 0.065 },
   attic:    { rumbleLP: 70,  rumbleGain: 0.08, hissHP: 4000, hissGain: 0.05, droneGain: 0.08 },
+  campus:   { rumbleLP: 60,  rumbleGain: 0.10, hissHP: 1800, hissGain: 0.09, droneGain: 0.025 },
+  club:     { rumbleLP: 100, rumbleGain: 0.18, hissHP: 2800, hissGain: 0.06, droneGain: 0.055 },
 };
 
 function rampParam(param: AudioParam, target: number, now: number, end: number): void {

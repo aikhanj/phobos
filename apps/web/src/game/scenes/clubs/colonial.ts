@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { AABB, GameScene, Trigger } from '@phobos/types';
+import type { AABB, GameScene, Interactable, Trigger } from '@phobos/types';
 import { SCENE_CONFIGS } from '../../sceneConfig';
 import { aabbFromCenter } from '../../collision';
 import {
@@ -25,9 +25,16 @@ export class ColonialInterior implements GameScene {
   private bounds: AABB[] = [];
   private triggerBoxes: Trigger[] = [];
   private fireGlow!: THREE.PointLight;
+  private pickup!: THREE.Mesh;
+  private pickupLight!: THREE.PointLight;
+  private pickupCollected = false;
   private readonly onExit: () => void;
+  private onPickup: (() => void) | null = null;
 
-  constructor(opts: { onExit: () => void }) { this.onExit = opts.onExit; }
+  constructor(opts: { onExit: () => void; onPickup?: () => void }) {
+    this.onExit = opts.onExit;
+    this.onPickup = opts.onPickup ?? null;
+  }
 
   load(): void {
     const cfg = SCENE_CONFIGS.colonial;
@@ -119,13 +126,20 @@ export class ColonialInterior implements GameScene {
 
     makeRug(this.group, 0, 0, 5.0, 9.0, 0x4a2420, 0x6a3830);
 
+    // Pickup: Laptop on the side table near the fireplace.
+    this.pickup = makeBox(0.3, 0.02, 0.2, new THREE.Vector3(-5.0, 0.66, -hd + 2.0), 0x1a1a1a);
+    this.group.add(this.pickup);
+    this.pickupLight = new THREE.PointLight(0xffe0a0, 0.4, 2);
+    this.pickupLight.position.set(-5.0, 0.96, -hd + 2.0);
+    this.group.add(this.pickupLight);
+
     // Abandonment debris.
     addAbandonment(this.group, w, d, h);
 
     makeExitDoor(this.group, 0, hd - 0.05, 1.6, 2.5, -1, 0x3a2818, 0xb09848);
     this.triggerBoxes.push({
       id: 'exit_to_campus',
-      box: aabbFromCenter(0, 1.0, hd - 0.25, 1.4, 1.2, 0.35),
+      box: aabbFromCenter(0, 1.0, hd - 0.5, 3.0, 1.2, 0.8),
       onEnter: () => this.onExit(),
       once: true,
     });
@@ -147,8 +161,33 @@ export class ColonialInterior implements GameScene {
   update(dt: number): void {
     this.time += dt;
     if (this.fireGlow) this.fireGlow.intensity = 0.65 + Math.sin(this.time * 9) * 0.04;
+    // Pickup light pulse.
+    if (!this.pickupCollected) {
+      this.pickupLight.intensity = 0.3 + Math.sin(this.time * 2.5) * 0.15;
+    }
   }
 
   colliders(): AABB[] { return this.bounds; }
   triggers(): Trigger[] { return this.triggerBoxes; }
+
+  interactables(): Interactable[] {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const scene = this;
+    const hd = SCENE_CONFIGS.colonial.dimensions.depth / 2;
+    return [
+      {
+        id: 'pickup_colonial',
+        box: aabbFromCenter(-5.0, 0.66, -hd + 2.0, 0.2, 0.1, 0.2),
+        hint: 'examine',
+        range: 2.5,
+        get enabled(): boolean { return !scene.pickupCollected; },
+        onInteract: () => {
+          scene.pickupCollected = true;
+          scene.pickup.visible = false;
+          scene.pickupLight.intensity = 0;
+          scene.onPickup?.();
+        },
+      },
+    ];
+  }
 }

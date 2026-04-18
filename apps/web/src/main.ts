@@ -1,9 +1,6 @@
 import * as THREE from 'three';
 import { Engine } from './game/engine';
 import { Player } from './game/player';
-import { Basement } from './game/scenes/basement';
-import { Bedroom } from './game/scenes/bedroom';
-import { Attic } from './game/scenes/attic';
 import { Campus } from './game/scenes/campus';
 import {
   type ClubId,
@@ -41,7 +38,8 @@ import { EntityManager, PhobosEntity } from './game/entities';
 import { PhobosDirector } from './agents/phobosDirector';
 import { AudioDirector } from './agents/audioDirector';
 import { NoteOverlay } from './ui/noteOverlay';
-import { CalibrationOverlay } from './ui/calibrationOverlay';
+import { ProgressionManager } from './game/progressionManager';
+import { playFlashback, FLASHBACKS } from './horror/flashback';
 import { FaceEmotionDetector } from './biosignals/faceEmotion';
 import { FearScoreCalculator } from './biosignals/fearScore';
 import { BluetoothHrClient } from './biosignals/bluetoothHr';
@@ -68,28 +66,30 @@ async function main() {
   const openaiKey = (import.meta.env.VITE_OPENAI_API_KEY as string) || '';
   const phobos = new PhobosDirector(openaiKey);
   const noteOverlay = new NoteOverlay();
+  const progression = new ProgressionManager();
   let sessionStartTime = 0;
   let currentSceneName: 'basement' | 'bedroom' | 'attic' = 'basement';
   let sceneStartTime = 0;
   let lastFearScore = 0;
   let lastBpm = 0;
 
-  // Note interaction handler — shows overlay, tracks reads
-  const handleNoteInteract = (noteId: NoteId): void => {
+  // Pickup interaction — shows note overlay for the found item.
+  // Exposed on window so club interiors can call it from their onInteract callbacks.
+  const showPickup = (noteId: NoteId): void => {
     player.setInputEnabled(false);
     noteOverlay.show(noteId, () => {
       player.setInputEnabled(true);
     });
-  };
-  const handleNoteRead = (noteId: NoteId): void => {
     phobos.onNoteRead(noteId);
   };
+  (window as unknown as Record<string, unknown>).__showPickup = showPickup;
 
   // Voice engine wiring (lazy — audio context is created at audio.init()).
   let voice: VoiceEngine | null = null;
   let lineBank: LineBank | null = null;
   let webcamGhost: WebcamGhost | null = null;
   let entityManager: EntityManager | null = null;
+  let creatureVoice: CreatureVoice | null = null;
   const voiceProxyUrl = (import.meta.env.VITE_VOICE_PROXY_URL as string) || 'http://localhost:3001';
   const defaultVoiceId = import.meta.env.VITE_ELEVEN_DEMO_VOICE_ID as string | undefined;
 
@@ -270,11 +270,35 @@ async function main() {
     log('system', summary);
   };
 
-  // Swap ambient profile whenever a scene loads.
+  // Swap ambient profile + vignette whenever a scene loads.
   engine.onSceneLoaded = (scene) => {
     if (scene.name === 'basement' || scene.name === 'bedroom' || scene.name === 'attic') {
       audio.setScene(scene.name);
       devHud.setStatus(`SCENE · ${scene.name}`);
+    }
+    // Per-scene vignette + grain
+    switch (scene.name) {
+      case 'campus':
+        engine.setVignette(0.78);
+        engine.setGrain(0.04);
+        break;
+      case 'basement':
+        engine.setVignette(0.68);
+        engine.setGrain(0.07);
+        break;
+      case 'bedroom':
+        engine.setVignette(0.65);
+        engine.setGrain(0.08);
+        break;
+      case 'attic':
+        engine.setVignette(0.55);
+        engine.setGrain(0.10);
+        break;
+      default:
+        // Club interiors — moderate vignette
+        engine.setVignette(0.62);
+        engine.setGrain(0.07);
+        break;
     }
   };
 
@@ -289,117 +313,346 @@ async function main() {
 
   // ── Prospect Avenue: campus + 10 club interiors ──────────────────────
 
-  const loadCampus = (): void => {
+  // Track which clubs the player has visited + escalation
+  let clubsVisited = 0;
+
+  // Remember where the player stood on the street before entering a club
+  // so we can put them back in front of the same door when they exit.
+  const savedCampusPos = new THREE.Vector3();
+  const savedCampusQuat = new THREE.Quaternion();
+
+  const loadCampus = (restorePosition = false): void => {
     const campus = new Campus({
       onEnterClub: (id) => { void enterClub(id); },
+      lockedClubs: progression.getLockedClubs(),
     });
     engine.loadScene(campus);
-    engine.camera.position.copy(campus.spawnPoint);
+    if (restorePosition) {
+      engine.camera.position.copy(savedCampusPos);
+      engine.camera.quaternion.copy(savedCampusQuat);
+    } else {
+      engine.camera.position.copy(campus.spawnPoint);
+    }
+    audio.setScene('campus');
     devHud.setStatus('SCENE · prospect ave · walk up to any club door');
-    devHud.flash('>> PROSPECT AVE — 10 CLUBS <<', 3000);
+    if (!restorePosition) devHud.flash('>> PROSPECT AVE — WALK TO A DOOR <<', 3000);
     log('system', 'prospect ave. the clubs are still standing.');
+    entityManager?.resetGazeState();
+    runCampusBeats();
   };
 
   const clubCtorByIdLocal = {
-    tower:    (onExit: () => void) => new TowerInterior({ onExit }),
-    cannon:   (onExit: () => void) => new CannonInterior({ onExit }),
-    ivy:      (onExit: () => void) => new IvyInterior({ onExit }),
-    cottage:  (onExit: () => void) => new CottageInterior({ onExit }),
-    capgown:  (onExit: () => void) => new CapGownInterior({ onExit }),
-    colonial: (onExit: () => void) => new ColonialInterior({ onExit }),
-    tigerinn: (onExit: () => void) => new TigerInnInterior({ onExit }),
-    terrace:  (onExit: () => void) => new TerraceInterior({ onExit }),
-    cloister: (onExit: () => void) => new CloisterInterior({ onExit }),
-    charter:  (onExit: () => void) => new CharterInterior({ onExit }),
-  } satisfies Record<ClubId, (onExit: () => void) => { spawnPoint: THREE.Vector3 }>;
+    tower:    (onExit: () => void, onPickup?: () => void) => new TowerInterior({ onExit, onPickup }),
+    cannon:   (onExit: () => void, onPickup?: () => void) => new CannonInterior({ onExit, onPickup }),
+    ivy:      (onExit: () => void, _onPickup?: () => void) => new IvyInterior({ onExit }),
+    cottage:  (onExit: () => void, _onPickup?: () => void) => new CottageInterior({ onExit }),
+    capgown:  (onExit: () => void, onPickup?: () => void) => new CapGownInterior({ onExit, onPickup }),
+    colonial: (onExit: () => void, onPickup?: () => void) => new ColonialInterior({ onExit, onPickup }),
+    tigerinn: (onExit: () => void, _onPickup?: () => void) => new TigerInnInterior({ onExit }),
+    terrace:  (onExit: () => void, _onPickup?: () => void) => new TerraceInterior({ onExit }),
+    cloister: (onExit: () => void, _onPickup?: () => void) => new CloisterInterior({ onExit }),
+    charter:  (onExit: () => void, onPickup?: () => void) => new CharterInterior({ onExit, onPickup }),
+  } satisfies Record<ClubId, (onExit: () => void, onPickup?: () => void) => { spawnPoint: THREE.Vector3 }>;
+
+  // Pickup handler — called when player collects an item in a club.
+  // Triggers flashback, collects key, shows note overlay.
+  const handleClubPickup = (clubId: ClubId): void => {
+    // Determine which flashback to play based on club
+    const flashbackMap: Partial<Record<ClubId, number>> = {
+      tower: 0, colonial: 1, cannon: 2, capgown: 3, charter: 4,
+    };
+    const fbIndex = flashbackMap[clubId];
+
+    // Collect key (unlocks next club)
+    const unlocked = progression.collectKey(clubId);
+    if (unlocked) {
+      log('system', `key found. ${CLUB_LABEL[unlocked]} unlocked.`);
+      devHud.flash(`>> ${CLUB_LABEL[unlocked].toUpperCase()} UNLOCKED <<`, 3000);
+    }
+
+    // Show the pickup note content
+    const noteMap: Partial<Record<ClubId, NoteId>> = {
+      tower: 'note_grant_proposal',
+      colonial: 'note_lab_journal',
+      cannon: 'note_private_journal',
+      capgown: 'note_wife_letter',
+      charter: 'note_final_entry',
+    };
+    const noteId = noteMap[clubId];
+    if (noteId) showPickup(noteId);
+
+    // Play flashback after note is dismissed
+    if (fbIndex !== undefined && !progression.hasPlayedFlashback(fbIndex)) {
+      progression.markFlashback(fbIndex);
+      const config = FLASHBACKS[fbIndex];
+      if (config) {
+        // Delay flashback until note overlay is closed
+        const waitForClose = setInterval(() => {
+          if (!noteOverlay.isVisible) {
+            clearInterval(waitForClose);
+            // Charter = endgame
+            if (clubId === 'charter') {
+              void endDemo();
+            } else {
+              void playFlashback(config, {
+                scene: engine.scene,
+                cornerBox,
+                webcamGhost,
+                voice,
+                defaultVoiceId,
+                onStart: () => player.setInputEnabled(false),
+                onEnd: () => player.setInputEnabled(true),
+              });
+            }
+          }
+        }, 200);
+      }
+    }
+  };
 
   const enterClub = async (id: ClubId): Promise<void> => {
+    if (!progression.isUnlocked(id)) {
+      log('system', `${CLUB_LABEL[id]} is locked.`);
+      return;
+    }
     player.setInputEnabled(false);
+    // Save the player's street position + facing so we can restore on exit.
+    savedCampusPos.copy(engine.camera.position);
+    savedCampusQuat.copy(engine.camera.quaternion);
+    clubsVisited++;
     log('system', `entering ${CLUB_LABEL[id]}.`);
     await fade.fadeToBlack(500);
-    const room = clubCtorByIdLocal[id](() => { void exitToCampus(); });
+    const room = clubCtorByIdLocal[id](() => { void exitToCampus(); }, () => handleClubPickup(id));
     engine.loadScene(room as unknown as Parameters<typeof engine.loadScene>[0]);
     engine.camera.position.copy(room.spawnPoint);
-    devHud.setStatus(`SCENE · ${CLUB_LABEL[id]} · walk to the door to leave`);
+    audio.setScene('club');
+    devHud.setStatus(`SCENE · ${CLUB_LABEL[id]} · find the exit`);
     await new Promise((r) => setTimeout(r, 180));
     await fade.fadeFromBlack(700);
     player.setInputEnabled(true);
+    entityManager?.resetGazeState();
+    runClubBeats(id);
   };
 
   const exitToCampus = async (): Promise<void> => {
     player.setInputEnabled(false);
     log('system', 'back to prospect ave.');
     await fade.fadeToBlack(500);
-    loadCampus();
+    loadCampus(true);
     await new Promise((r) => setTimeout(r, 150));
     await fade.fadeFromBlack(700);
     player.setInputEnabled(true);
   };
 
-  // ── scene factories (defined forward, swap in the transitions below) ──
-  const loadBasement = (): void => {
-    currentSceneName = 'basement';
-    sceneStartTime = performance.now();
-    phobos.onSceneChange('basement');
-    const basement = new Basement({
-      onTransitionToBedroom: () => transitionToBedroom(),
-      onNoteRead: handleNoteRead,
-      onNoteInteract: handleNoteInteract,
+  // ── CAMPUS HORROR BEATS ──────────────────────────────────────────────
+  // Outdoor atmosphere. Phobos is distant. Something is wrong with the
+  // street. Escalates based on how many clubs the player has visited.
+
+  function runCampusBeats(): void {
+    const t = swapTimeline(new Timeline());
+    const bus = engine.eventBus;
+
+    // Silence first. Let them look around.
+    t.schedule(2000, () => {
+      bus.fire({ kind: 'silence', duration: 3 });
     });
-    engine.loadScene(basement);
-    engine.camera.position.copy(basement.spawnPoint);
-    runBasementOpening(basement);
-  };
 
-  const loadBedroom = (): void => {
-    currentSceneName = 'bedroom';
-    sceneStartTime = performance.now();
-    phobos.onSceneChange('bedroom');
-    const bedroom = new Bedroom({
-      onTransitionToAttic: () => transitionToAttic(),
-      onNoteRead: handleNoteRead,
-      onNoteInteract: handleNoteInteract,
+    // 6s: a distant footstep. not theirs.
+    t.schedule(6000, () => {
+      if (creatureVoice) {
+        const p = engine.camera.position;
+        creatureVoice.setPosition({ x: p.x + 12, y: 0, z: p.z + 8 });
+        void creatureVoice.footstepsToward(
+          { x: p.x + 8, y: 0, z: p.z + 5 },
+          2, 1500,
+        );
+      }
     });
-    engine.loadScene(bedroom);
-    engine.camera.position.copy(bedroom.spawnPoint);
-    runBedroomBeats();
-  };
 
-  const loadAttic = (): void => {
-    currentSceneName = 'attic';
-    sceneStartTime = performance.now();
-    phobos.onSceneChange('attic');
-    const attic = new Attic({
-      onDemoEnd: () => endDemo(),
-      onNoteRead: handleNoteRead,
-      onNoteInteract: handleNoteInteract,
+    // 15s: Phobos entity appears far down the street (peripheral)
+    t.schedule(15000, () => {
+      if (entityManager) {
+        const p = engine.camera.position;
+        const fwd = new THREE.Vector3();
+        engine.camera.getWorldDirection(fwd);
+        entityManager.phobos.setPosition({ x: p.x + fwd.x * 8, y: 0, z: p.z + fwd.z * 8 });
+        entityManager.phobos.setVisibility('revealed');
+        setTimeout(() => entityManager?.phobos.setVisibility('hidden'), 4000);
+      }
     });
-    engine.loadScene(attic);
-    engine.camera.position.copy(attic.spawnPoint);
-    runAtticBeats();
-  };
 
-  // ── transitions ──
-  const transitionToBedroom = async (): Promise<void> => {
-    player.setInputEnabled(false);
-    log('pacing_director', 'ascent. tier 2.');
-    await fade.fadeToBlack(700);
-    loadBedroom();
-    await new Promise((r) => setTimeout(r, 250));
-    await fade.fadeFromBlack(800);
-    player.setInputEnabled(true);
-  };
+    // After 3+ clubs: Phobos is persistent — always there, always following
+    if (clubsVisited >= 3 && entityManager) {
+      entityManager.persistent = true;
+      t.schedule(10000, () => {
+        if (creatureVoice) {
+          const p = engine.camera.position;
+          creatureVoice.setPosition({ x: p.x, y: 0, z: p.z });
+          void creatureVoice.whisperSequence(1, 6, 0);
+        }
+      });
+    }
 
-  const transitionToAttic = async (): Promise<void> => {
-    player.setInputEnabled(false);
-    log('pacing_director', 'ascent.');
-    await fade.fadeToBlack(900);
-    loadAttic();
-    await new Promise((r) => setTimeout(r, 400));
-    await fade.fadeFromBlack(1200);
-    player.setInputEnabled(true);
-  };
+    // After 4+ clubs: doppelgangers on the street
+    if (clubsVisited >= 4 && entityManager) {
+      t.schedule(12000, () => {
+        entityManager?.spawnDoppelgangers(2);
+      });
+    }
 
+    // After 6+ clubs: more doppelgangers + Phobos closer
+    if (clubsVisited >= 6 && entityManager) {
+      t.schedule(8000, () => {
+        entityManager?.spawnDoppelgangers(3);
+      });
+    }
+  }
+
+  // ── CLUB INTERIOR HORROR BEATS ───────────────────────────────────────
+  // Generic horror that works in ANY club room. Escalates with clubsVisited.
+  // Uses spatial audio, entity spawning, and timed scares.
+
+  function runClubBeats(clubId: ClubId): void {
+    const t = swapTimeline(new Timeline());
+    const bus = engine.eventBus;
+    const escalation = Math.min(clubsVisited, 8); // 1-8 escalation curve
+
+    // ── Interleaved agent log: roommate's old session + player's live session ──
+    // These fire on independent timers, interleaving naturally.
+    const roommateLogs = [
+      { delay: 4000, msg: `4721: ${CLUB_LABEL[clubId].toLowerCase()}. bicker night.` },
+      { delay: 12000, msg: '4721: fear_score: 0.34.' },
+      { delay: 20000, msg: '4721: stimulus applied.' },
+      { delay: 28000, msg: `4721: fear_score: ${(0.5 + escalation * 0.05).toFixed(2)}.` },
+      { delay: 36000, msg: '4721: subject is adapting.' },
+    ];
+    for (const entry of roommateLogs) {
+      t.schedule(entry.delay, () => log('phobos', entry.msg));
+    }
+    // Player's live data — fires from biosignal tick, labeled as 4722.
+    // Inject a few scripted ones too for non-API-key mode.
+    t.schedule(8000, () => log('phobos', `4722: ${CLUB_LABEL[clubId].toLowerCase()}. session active.`));
+    t.schedule(18000, () => log('phobos', `4722: fear_score: ${lastFearScore.toFixed(2)}.`));
+    t.schedule(32000, () => log('phobos', `4722: fear_score: ${lastFearScore.toFixed(2)}. tracking.`));
+
+    // ── Phase 1: Settling (0-8s) — let them look around ──
+    // Silence. The club feels normal. Maybe too quiet.
+
+    // 5s: a single creak. this building is old.
+    t.schedule(5000, () => {
+      bus.fire({ kind: 'sound', asset: 'creak_floor', volume: 0.3 + escalation * 0.03 });
+    });
+
+    // ── Phase 2: First scare (10-20s) — something is here ──
+
+    // 10s: spatial footsteps from behind — 2 steps approaching
+    t.schedule(10000, () => {
+      if (creatureVoice) {
+        const p = engine.camera.position;
+        const fwd = new THREE.Vector3();
+        engine.camera.getWorldDirection(fwd);
+        const behind = { x: p.x - fwd.x * 4, y: 0, z: p.z - fwd.z * 4 };
+        const closer = { x: p.x - fwd.x * 2, y: 0, z: p.z - fwd.z * 2 };
+        creatureVoice.setPosition(behind);
+        void creatureVoice.footstepsToward(closer, 2, 1200);
+      }
+    });
+
+    // 16s: silence drop. something is about to happen.
+    t.schedule(16000, () => {
+      bus.fire({ kind: 'silence', duration: 4 });
+    });
+
+    // ── Phase 3: Entity (20-35s) — Phobos shows itself ──
+
+    // 22s: Phobos appears at the periphery. More visible with escalation.
+    t.schedule(22000, () => {
+      if (entityManager) {
+        const p = engine.camera.position;
+        const fwd = new THREE.Vector3();
+        engine.camera.getWorldDirection(fwd);
+        // Spawn to the side, not directly behind
+        const right = new THREE.Vector3(fwd.z, 0, -fwd.x);
+        const spawnDist = 5 - escalation * 0.3; // closer with escalation
+        entityManager.phobos.setPosition({
+          x: p.x + right.x * spawnDist,
+          y: 0,
+          z: p.z + right.z * spawnDist,
+        });
+        const vis = escalation >= 5 ? 'revealed' : 'peripheral';
+        entityManager.phobos.setVisibility(vis);
+        // Stay visible longer with escalation
+        const holdMs = 1500 + escalation * 400;
+        setTimeout(() => entityManager?.phobos.setVisibility('hidden'), holdMs);
+      }
+    });
+
+    // ── Phase 4: Climax (30-45s) — based on escalation ──
+
+    if (escalation >= 2) {
+      // 30s: a whisper from the fireplace direction (most clubs have one at north wall)
+      t.schedule(30000, () => {
+        if (creatureVoice) {
+          creatureVoice.setPosition({ x: 0, y: 0, z: -3 }); // north wall area
+          void creatureVoice.whisperSequence(1, 2, 0);
+        }
+      });
+    }
+
+    if (escalation >= 6) {
+      // 35s: subtle flicker — only at high escalation, keep it rare
+      t.schedule(35000, () => {
+        bus.fire({ kind: 'flicker', duration: 0.2, pattern: 'subtle' });
+      });
+    }
+
+    if (escalation >= 7) {
+      // 40s: full haunt sequence — only at very high escalation
+      t.schedule(40000, () => {
+        if (creatureVoice) {
+          const p = engine.camera.position;
+          const fwd = new THREE.Vector3();
+          engine.camera.getWorldDirection(fwd);
+          void creatureVoice.haunt(
+            { x: p.x, y: 0, z: p.z },
+            { x: fwd.x, y: 0, z: fwd.z },
+          );
+          // Entity appears at haunt climax
+          setTimeout(() => {
+            if (entityManager) {
+              const pp = engine.camera.position;
+              const ff = new THREE.Vector3();
+              engine.camera.getWorldDirection(ff);
+              entityManager.phobos.setPosition({ x: pp.x + ff.x * 2, y: 0, z: pp.z + ff.z * 2 });
+              entityManager.phobos.setVisibility('close');
+              setTimeout(() => entityManager?.phobos.setVisibility('hidden'), 3000);
+            }
+          }, 8000);
+        }
+      });
+    }
+
+    // Log Phobos's in-character observation about this club
+    t.schedule(3000, () => {
+      const observations: Record<string, string> = {
+        tower: 'old money. oak and silence.',
+        cannon: 'cold stone. they kept records here.',
+        ivy: 'the darkest one. it remembers.',
+        cottage: 'bright. they thought light would protect them.',
+        capgown: 'gargoyles outside. something worse inside.',
+        colonial: 'columns. symmetry. control.',
+        tigerinn: 'half-timbered. half-real.',
+        terrace: 'flagstone. the floor is watching.',
+        cloister: 'arches. nowhere to hide.',
+        charter: 'the cupola. something up there.',
+      };
+      log('phobos', observations[clubId] ?? 'another room. another subject.');
+    });
+  }
+
+  // (Old basement/bedroom/attic scene code was here — removed. Game is Prospect Ave now.)
+
+  // This is a placeholder — loadBasement used to exist for the old horror arc.
   let revealRunning = false;
   const endDemo = async (): Promise<void> => {
     if (revealRunning) return;
@@ -421,387 +674,8 @@ async function main() {
     await reveal.run();
   };
 
-  // ── beat sheets ──
-
-  /**
-   * Basement opening = interactive calibration ritual. The player cannot
-   * walk but CAN look around with the mouse. Calibration advances through
-   * gaze-reactive phases — the room responds to where they look.
-   *
-   * Phase 0: Boot       (~3.5s fixed) — CRT boots, candles light one by one
-   * Phase 1: Gaze       (1.5s on target or 8s timeout) — "look at the camera"
-   * Phase 2: Stillness  (2s still or 6s timeout) — "hold still", fake BPM ramps
-   * Phase 3: Scare test (5s fixed) — "don't look away", hard flicker + sound
-   * Phase 4: Complete   (3s fixed) — flare, voice, unlock
-   */
-  function runBasementOpening(basement: Basement): void {
-    const t = swapTimeline(new Timeline());
-    player.setInputEnabled(false);
-
-    const calibOverlay = new CalibrationOverlay();
-    const tripodPos = new THREE.Vector3(0, 1.3, -1.5);
-    const _gazeDir = new THREE.Vector3();
-    const _toTarget = new THREE.Vector3();
-
-    let phase = 0;
-    let phaseStart = performance.now();
-    let gazeOnTarget = 0;
-    let stillAccum = 0;
-    const prevLook = new THREE.Vector3();
-    engine.camera.getWorldDirection(prevLook);
-    let scareFired = false;
-    let reactionLogged = false;
-    let fakeBpm = 0;
-    let pollId: number | null = null;
-
-    const phaseElapsed = (): number => (performance.now() - phaseStart) / 1000;
-
-    const isLookingAt = (target: THREE.Vector3, thresholdDeg = 15): boolean => {
-      engine.camera.getWorldDirection(_gazeDir);
-      _toTarget.subVectors(target, engine.camera.position).normalize();
-      const dot = _gazeDir.dot(_toTarget);
-      return Math.acos(Math.min(1, Math.max(-1, dot))) < thresholdDeg * Math.PI / 180;
-    };
-
-    const getLookAngularSpeed = (): number => {
-      engine.camera.getWorldDirection(_gazeDir);
-      const dot = Math.min(1, Math.max(-1, _gazeDir.dot(prevLook)));
-      prevLook.copy(_gazeDir);
-      return Math.acos(dot) / 0.1;
-    };
-
-    const stopPoll = (): void => {
-      if (pollId !== null) { clearInterval(pollId); pollId = null; }
-    };
-
-    const enterPhase = (p: number): void => {
-      phase = p;
-      phaseStart = performance.now();
-      gazeOnTarget = 0;
-      stillAccum = 0;
-
-      switch (p) {
-        case 1:
-          calibOverlay.show('look at the camera');
-          log('creature_director', 'locate the subject.');
-          devHud.setStatus('CALIBRATION · GAZE · WASD LOCKED');
-          break;
-
-        case 2:
-          basement.lightCandle(2);
-          calibOverlay.show('hold still');
-          log('system', 'eye contact. locked.');
-          engine.eventBus.fire({ kind: 'crt_message', text: 'FACE DETECTED', durationS: 5 });
-          engine.eventBus.fire({ kind: 'sound', asset: 'heartbeat', volume: 0.3 });
-          log('audio_director', 'reading pulse...');
-          devHud.setStatus('CALIBRATION · PULSE · WASD LOCKED');
-          break;
-
-        case 3:
-          basement.lightCandle(3);
-          basement.setOverheadBase(0.35);
-          calibOverlay.show("don't look away");
-          log('system', `pulse: ${Math.round(fakeBpm)} bpm. stable.`);
-          cornerBox.updateFearScore(0.05);
-          log('pacing_director', 'testing.');
-          devHud.setStatus('CALIBRATION · HOLD · WASD LOCKED');
-          break;
-
-        case 4:
-          stopPoll();
-          calibOverlay.setProgress(1);
-          calibOverlay.show('calibration complete');
-          basement.flareCandles();
-          basement.setOverheadBase(0.5);
-          engine.eventBus.fire({ kind: 'crt_message', text: 'SUBJECT PROFILED', durationS: 4 });
-          log('system', 'good.');
-          speakAs('low', 'good');
-          cornerBox.updateFearScore(0.08);
-          devHud.setStatus('CALIBRATION · DONE');
-
-          setTimeout(() => {
-            calibOverlay.hide();
-            basement.setCalibrationComplete();
-            player.setInputEnabled(true);
-            devHud.setStatus('SCENE · basement · WASD + [E] ENABLED');
-            devHud.flash('>> WASD · MOUSE · [E] <<', 2800);
-            runBasementExploration();
-            setTimeout(() => calibOverlay.dispose(), 1000);
-          }, 3000);
-          break;
-      }
-    };
-
-    // ── Phase 0: Boot (fixed timeline, ~3.5s) ──
-    devHud.setStatus('CALIBRATION · BOOT · WASD LOCKED');
-
-    t.schedule(200, () => engine.eventBus.fire({ kind: 'crt_message', text: 'PHOBOS v2.1', durationS: 3 }));
-    t.schedule(400, () => log('system', 'initializing...'));
-    t.schedule(1000, () => {
-      basement.lightCandle(0);
-      basement.setOverheadBase(0.15);
-    });
-    t.schedule(1800, () => log('system', 'camera feed: active.'));
-    t.schedule(2500, () => {
-      basement.lightCandle(1);
-      basement.setOverheadBase(0.22);
-    });
-    t.schedule(3000, () => engine.eventBus.fire({ kind: 'crt_message', text: 'CALIBRATING...', durationS: 6 }));
-    t.schedule(3500, () => enterPhase(1));
-
-    // ── Gaze poll (100ms) — drives phases 1-3 reactively ──
-    pollId = window.setInterval(() => {
-      const dt = 0.1;
-      let progress = 0;
-
-      switch (phase) {
-        case 0:
-          progress = Math.min(0.12, phaseElapsed() / 3.5 * 0.12);
-          break;
-
-        case 1: {
-          const looking = isLookingAt(tripodPos, 18);
-          if (looking) {
-            gazeOnTarget += dt;
-          } else {
-            gazeOnTarget = Math.max(0, gazeOnTarget - dt * 0.3);
-          }
-          progress = 0.12 + (gazeOnTarget / 1.5) * 0.22;
-
-          if (gazeOnTarget >= 1.5) {
-            enterPhase(2);
-          } else if (phaseElapsed() > 8) {
-            log('system', 'manual override. proceeding.');
-            enterPhase(2);
-          }
-          break;
-        }
-
-        case 2: {
-          const angSpeed = getLookAngularSpeed();
-          if (angSpeed < 0.3) {
-            stillAccum += dt;
-          } else {
-            stillAccum = Math.max(0, stillAccum - dt * 0.5);
-          }
-
-          if (fakeBpm < 72) {
-            fakeBpm = Math.min(72, fakeBpm + dt * 20);
-            cornerBox.updateBPM(Math.round(fakeBpm));
-          }
-
-          progress = 0.34 + (stillAccum / 2) * 0.22;
-
-          if (stillAccum >= 2) {
-            enterPhase(3);
-          } else if (phaseElapsed() > 6) {
-            fakeBpm = 72;
-            cornerBox.updateBPM(72);
-            log('system', `pulse: ${Math.round(fakeBpm)} bpm. unstable.`);
-            enterPhase(3);
-          }
-          break;
-        }
-
-        case 3: {
-          progress = 0.56 + Math.min(0.22, phaseElapsed() / 5 * 0.22);
-
-          if (phaseElapsed() > 2 && !scareFired) {
-            scareFired = true;
-            engine.eventBus.fire({ kind: 'flicker', duration: 0.5, pattern: 'hard' });
-            engine.eventBus.fire({ kind: 'breath', intensity: 0.6 });
-            engine.eventBus.fire({ kind: 'sound', asset: 'footstep_behind', volume: 0.9 });
-          }
-
-          if (phaseElapsed() > 2.8 && !reactionLogged) {
-            reactionLogged = true;
-            const looking = isLookingAt(tripodPos, 25);
-            if (!looking) {
-              log('creature_director', 'flinch. catalogued.');
-            } else {
-              log('creature_director', 'no reaction. interesting.');
-            }
-          }
-
-          if (phaseElapsed() >= 5) {
-            enterPhase(4);
-          }
-          break;
-        }
-
-        case 4:
-          progress = 0.78 + Math.min(0.22, phaseElapsed() / 3 * 0.22);
-          break;
-      }
-
-      calibOverlay.setProgress(Math.min(1, progress));
-    }, 100);
-  }
-
-  /**
-   * After calibration — the player can now move. Beats fire based on
-   * wall-clock but most of the real scares are the authored gazetracked
-   * prop relocation when the player turns toward the stairs.
-   */
-  function runBasementExploration(): void {
-    const t = swapTimeline(new Timeline());
-    const bus = engine.eventBus;
-
-    // 8s in: a footstep behind them; creature asks, pacing says no.
-    t.schedule(8000, () => {
-      log('creature_director', 'behind them. now.');
-      log('pacing_director', 'no. not yet.');
-      bus.fire({ kind: 'sound', asset: 'footstep_behind', volume: 0.8 });
-    });
-
-    // 12s: tone_wrong — something feels off
-    t.schedule(12000, () => {
-      bus.fire({ kind: 'sound', asset: 'tone_wrong', volume: 0.25 });
-    });
-
-    // 14s: silence drop + prep crate move
-    t.schedule(14000, () => {
-      log('audio_director', 'silence.');
-      bus.fire({ kind: 'silence', duration: 3 });
-    });
-
-    // 16s: schedule crate move — fires only when crate is unwatched
-    t.schedule(16000, () => {
-      log('creature_director', 'when they turn.');
-      bus.schedule(
-        {
-          kind: 'prop_move',
-          propId: 'basement_crate',
-          to: [1.8, 0.3, 0.5],
-          requires: 'unwatched',
-        },
-        0,
-      );
-    });
-
-    // 19s: hard blackout flicker + stinger combo
-    t.schedule(19000, () => {
-      bus.fire({ kind: 'sound', asset: 'stinger_low', volume: 0.8 });
-      bus.fire({ kind: 'sound', asset: 'impact', volume: 0.7 });
-      bus.fire({ kind: 'flicker', duration: 0.35, pattern: 'blackout' });
-      fade.blink(150);
-    });
-
-    // 23s: radio static interference
-    t.schedule(23000, () => {
-      bus.fire({ kind: 'sound', asset: 'radio_static', volume: 0.5 });
-    });
-
-    // 26s: a whisper pointing up the stairs
-    t.schedule(26000, () => {
-      log('pacing_director', 'upstairs.');
-      bus.fire({ kind: 'sound', asset: 'whisper_see', volume: 0.6 });
-    });
-
-    // 30s: reverse creak — something wrong
-    t.schedule(30000, () => {
-      bus.fire({ kind: 'sound', asset: 'reverse_creak', volume: 0.5 });
-    });
-  }
-
-  /**
-   * Bedroom — the star. Window figure, wardrobe creak, mirror mismatch,
-   * forced release, then the hatch.
-   */
-  function runBedroomBeats(): void {
-    const t = swapTimeline(new Timeline());
-    const bus = engine.eventBus;
-
-    t.schedule(1500, () => log('pacing_director', 'hold.'));
-
-    // 6s: wardrobe creaks ajar
-    t.schedule(6000, () => {
-      log('creature_director', 'the wardrobe.');
-      bus.fire({ kind: 'prop_state', propId: 'bedroom_wardrobe_door', state: 'ajar', param: 0.18 });
-      bus.fire({ kind: 'sound', asset: 'creak_door', volume: 0.7 });
-    });
-
-    // 11s: figure in window
-    t.schedule(11000, () => {
-      log('creature_director', 'window. brief.');
-      log('pacing_director', 'allowed.');
-      bus.fire({ kind: 'figure', anchor: 'window', duration: 1.2, opacity: 0.85 });
-    });
-
-    // 15s: tone_wrong builds dread
-    t.schedule(15000, () => {
-      bus.fire({ kind: 'sound', asset: 'tone_wrong', volume: 0.3 });
-    });
-
-    // 18s: Pacing forces release — light warms, silence, breath.
-    t.schedule(18000, () => {
-      log('pacing_director', 'release. twelve seconds.');
-      bus.fire({ kind: 'silence', duration: 4 });
-      bus.fire({ kind: 'breath', intensity: 0.3 });
-    });
-
-    // 22s: the release isn't release — mirror swaps to "extra figure" + stinger.
-    t.schedule(22000, () => {
-      log('creature_director', 'look at the mirror.');
-      bus.fire({ kind: 'sound', asset: 'stinger_high', volume: 0.7 });
-      bus.fire({ kind: 'mirror_swap', variant: 'extra_figure' });
-    });
-
-    // 25s: anti-silence — disorienting volume surge
-    t.schedule(25000, () => {
-      bus.fire({ kind: 'anti_silence', duration: 2 });
-    });
-
-    // 28s: harder flicker, wardrobe opens wider + impact
-    t.schedule(28000, () => {
-      log('audio_director', 'lower.');
-      bus.fire({ kind: 'sound', asset: 'impact', volume: 0.8 });
-      bus.fire({ kind: 'flicker', duration: 0.8, pattern: 'hard' });
-      bus.fire({ kind: 'prop_state', propId: 'bedroom_wardrobe_door', state: 'ajar', param: 0.55 });
-    });
-
-    // 32s: radio static before hatch unlock
-    t.schedule(32000, () => {
-      bus.fire({ kind: 'sound', asset: 'radio_static', volume: 0.6 });
-    });
-
-    // 35s: hatch unlocks
-    t.schedule(35000, () => {
-      log('pacing_director', 'ascent.');
-      bus.fire({ kind: 'unlock', propId: 'bedroom_hatch' });
-    });
-  }
-
-  /**
-   * Attic — climax. The breathing center is ambient; approaching it ends
-   * the demo via the trigger set up in `Attic.triggers()`.
-   */
-  function runAtticBeats(): void {
-    const t = swapTimeline(new Timeline());
-    const bus = engine.eventBus;
-
-    t.schedule(500, () => log('creature_director', 'home.'));
-    t.schedule(3000, () => {
-      log('audio_director', 'no ambient. only breath.');
-      bus.fire({ kind: 'silence', duration: 20 });
-      bus.fire({ kind: 'breath', intensity: 0.4 });
-    });
-    // 6s: reverse creak in the void
-    t.schedule(6000, () => {
-      bus.fire({ kind: 'sound', asset: 'reverse_creak', volume: 0.3 });
-    });
-    t.schedule(9000, () => log('pacing_director', 'let them approach.'));
-    // 11s: stinger combo — something is here
-    t.schedule(11000, () => {
-      bus.fire({ kind: 'sound', asset: 'stinger_low', volume: 0.7 });
-      bus.fire({ kind: 'sound', asset: 'stinger_high', volume: 0.5 });
-      bus.fire({ kind: 'sound', asset: 'glitch', volume: 0.6 });
-    });
-    t.schedule(14000, () => {
-      log('creature_director', 'closer.');
-      bus.fire({ kind: 'sound', asset: 'radio_static', volume: 0.5 });
-    });
-  }
+  // (Old basement/bedroom/attic beat sheets removed — game uses runCampusBeats/runClubBeats now.)
+  const loadBasement = (): void => { log('system', 'old arc disabled. use clubs.'); };
 
   // ── boot sequence ──
 
@@ -887,7 +761,7 @@ async function main() {
 
       // Phobos entity — persistent across scenes, driven by biosignal spikes.
       const ambientBus = new AmbientBus(audioCtx, audioMaster, 0.0);
-      const creatureVoice = new CreatureVoice(voice, lineBank, ambientBus);
+      creatureVoice = new CreatureVoice(voice, lineBank, ambientBus);
       const phobos = new PhobosEntity(voice, creatureVoice);
       entityManager = new EntityManager({
         scene: engine.scene,

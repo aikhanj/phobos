@@ -1,0 +1,67 @@
+<h2>Design Section 2: Vertex Jitter Shader</h2>
+<p class="subtitle">The signature PS1 wobble &mdash; geometry shimmers as the camera moves</p>
+
+<div class="section">
+  <h3>What It Does</h3>
+  <div style="background: #111; border: 1px solid #333; border-radius: 8px; padding: 16px; margin: 12px 0; font-size: 14px; color: #ccc; line-height: 1.6;">
+    <p style="margin: 0 0 12px 0;">The PS1's GPU had no sub-pixel precision. After transforming vertices to screen space, it <strong>snapped them to integer pixel coordinates</strong>. As the camera moved, vertices would "pop" between grid positions, making all geometry shimmer and wobble.</p>
+    <p style="margin: 0;">We replicate this with a custom vertex shader that:</p>
+    <ol style="padding-left: 20px; margin: 8px 0 0 0;">
+      <li>Transforms the vertex to clip space (normal MVP)</li>
+      <li>Converts to screen-pixel coordinates</li>
+      <li>Rounds to a configurable grid (e.g., every 2px at half-res = ~480&times;270 effective grid)</li>
+      <li>Converts back to clip space</li>
+    </ol>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Implementation</h3>
+  <div style="background: #111; border: 1px solid #333; border-radius: 8px; padding: 16px; margin: 12px 0; font-size: 14px; color: #ccc; line-height: 1.6;">
+    <p style="margin: 0 0 12px 0;"><strong>New file: <code>apps/web/src/game/ps1Material.ts</code></strong></p>
+    <p style="margin: 0 0 8px 0;">Exports a <code>createPS1Material(opts)</code> factory that wraps <code>THREE.ShaderMaterial</code>:</p>
+    <ul style="padding-left: 20px; margin: 8px 0; color: #aaa;">
+      <li>Custom vertex shader with grid-snap logic</li>
+      <li>Fragment shader passes through texture color + Lambert-style lighting via Three.js light uniforms</li>
+      <li>Accepts a <code>map</code> (texture), <code>color</code> (tint), <code>jitterStrength</code> (grid size)</li>
+      <li>Uses Three.js <code>onBeforeCompile</code> pattern OR full custom <code>ShaderMaterial</code></li>
+    </ul>
+    <p style="margin: 12px 0 0 0; color: #888; font-size: 13px;">The <code>makeProp</code>/<code>makeWall</code> helpers switch from <code>MeshLambertMaterial</code> to <code>createPS1Material()</code>. Lighting still works because we include Three.js lighting chunks in the shader.</p>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Approach Decision</h3>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="onbeforecompile" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>onBeforeCompile Injection (Recommended)</h3>
+      <p>Patch <code>MeshLambertMaterial</code>'s vertex shader at compile time. Keeps all built-in lighting, fog, and normal behavior &mdash; we just inject the grid-snap at the end of the vertex shader.</p>
+      <div style="margin-top: 8px; padding: 8px; background: #1a1a2e; border-radius: 4px; font-size: 13px; color: #8888aa;">
+        <strong>Pro:</strong> Free lighting, fog, all Three.js features still work<br>
+        <strong>Pro:</strong> Less code &mdash; we only write the snap logic<br>
+        <strong>Con:</strong> Fragile if Three.js updates shader chunks (unlikely during hackathon)
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="full-shader" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Full Custom ShaderMaterial</h3>
+      <p>Write the entire vertex + fragment shader from scratch, including simplified Lambert lighting.</p>
+      <div style="margin-top: 8px; padding: 8px; background: #1a1a2e; border-radius: 4px; font-size: 13px; color: #8888aa;">
+        <strong>Pro:</strong> Full control &mdash; can also add affine texture warping in the same shader<br>
+        <strong>Con:</strong> Must manually handle fog, lights, normals &mdash; lots more code<br>
+        <strong>Con:</strong> Risk of lighting looking different from current game
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="background: #0a1a0a; border: 1px solid #2a4a2a; border-radius: 8px; padding: 16px; margin-top: 16px;">
+  <p style="margin: 0; color: #8a8; font-size: 14px;"><strong>Which shader approach?</strong> I recommend A &mdash; less code, keeps all existing lighting working. Let me know in the terminal.</p>
+</div>

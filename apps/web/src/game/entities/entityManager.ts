@@ -57,6 +57,12 @@ export class EntityManager {
   private lastFillerAt = 0;
   private now = 0;
 
+  // ── stalking + gaze state ──
+  private gazeOnPhobosAccum = 0;
+  private gazeReactedThisCycle = false;
+  /** When true, Phobos stays at peripheral between scenes instead of hiding. */
+  persistent = false;
+
   constructor(opts: EntityManagerOptions, tuning: Partial<EntityManagerTuning> = {}) {
     this.scene = opts.scene;
     this.camera = opts.camera;
@@ -145,6 +151,7 @@ export class EntityManager {
   update(dt: number): void {
     this.tickTime(dt);
     this.phobos.update(dt, this.camera);
+    this.updateGazeReaction(dt);
     for (let i = this.ephemerals.length - 1; i >= 0; i--) {
       const f = this.ephemerals[i];
       f.update(dt, this.camera);
@@ -152,6 +159,101 @@ export class EntityManager {
         f.dispose();
         this.ephemerals.splice(i, 1);
       }
+    }
+  }
+
+  /**
+   * Stalking + gaze reaction. Three behaviors:
+   *
+   * 1. STALK: When visible and player NOT looking → drift toward player at
+   *    ~0.8 m/s. Stops within 1.5m. Continuous, every frame.
+   *
+   * 2. FREEZE: When player IS looking → stop instantly. Classic horror.
+   *
+   * 3. STARE PUNISHMENT: Stare >2s → Phobos reacts with SFX then vanishes.
+   */
+  private updateGazeReaction(dt: number): void {
+    const vis = this.phobos.getVisibility();
+    if (vis === 'hidden') {
+      this.gazeOnPhobosAccum = 0;
+      this.gazeReactedThisCycle = false;
+      return;
+    }
+
+    const phobosPos = this.phobos.group.position;
+    const camPos = this.camera.position;
+    const dx = phobosPos.x - camPos.x;
+    const dz = phobosPos.z - camPos.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist < 0.5) return;
+
+    const forward = new THREE.Vector3();
+    this.camera.getWorldDirection(forward);
+    const dot = (forward.x * dx + forward.z * dz) / dist;
+    const isLooking = dot > Math.cos(30 * Math.PI / 180); // 30° cone
+
+    if (isLooking) {
+      // FREEZE — player is looking. Don't move. Accumulate stare time.
+      this.gazeOnPhobosAccum += dt;
+
+      if (this.gazeOnPhobosAccum > 2 && !this.gazeReactedThisCycle) {
+        // STARE PUNISHMENT
+        this.gazeReactedThisCycle = true;
+        this.log?.('creature_director', 'it sees you looking.');
+        void this.phobos.reactToSpike({ score: 0.5, delta: 0.2, bpm: 80, timestamp: Date.now() });
+        setTimeout(() => this.phobos.setVisibility('hidden'), 800);
+      }
+    } else {
+      // STALK — player not looking. Drift toward them.
+      this.gazeOnPhobosAccum = 0;
+
+      if (dist > 1.5) {
+        const speed = 0.8; // m/s — slow, deliberate
+        const step = speed * dt;
+        const nx = -dx / dist; // normalized direction toward player
+        const nz = -dz / dist;
+        this.phobos.setPosition({
+          x: phobosPos.x + nx * step,
+          y: 0,
+          z: phobosPos.z + nz * step,
+        });
+      }
+
+      // Upgrade visibility as it gets closer
+      if (dist < 3 && vis === 'peripheral') {
+        this.phobos.setVisibility('revealed');
+      } else if (dist < 2 && vis === 'revealed') {
+        this.phobos.setVisibility('close');
+      }
+    }
+  }
+
+  /** Reset gaze state (call on scene change). */
+  resetGazeState(): void {
+    this.gazeOnPhobosAccum = 0;
+    this.gazeReactedThisCycle = false;
+    // If persistent mode, keep Phobos at peripheral
+    if (this.persistent) {
+      const pos = this.peripheralSpawnPosition(7);
+      this.phobos.setPosition(pos);
+      this.phobos.setVisibility('peripheral');
+    }
+  }
+
+  /**
+   * Spawn multiple dark figures in a loose semicircle around the player.
+   * Uses EphemeralFigure — they fade in, linger, fade out. No AI, just presence.
+   */
+  spawnDoppelgangers(count: number): void {
+    this.log?.('creature_director', `${count} of them now.`);
+    for (let i = 0; i < count; i++) {
+      const radius = 3.5 + Math.random() * 3;
+      const pos = this.peripheralSpawnPosition(radius);
+      const opacity = 0.3 + Math.random() * 0.35;
+      const ttl = 3 + Math.random() * 4;
+      const fig = new EphemeralFigure({ position: pos, opacity, ttl, fadeIn: 0.6, fadeOut: 1.2 });
+      this.scene.add(fig.group);
+      this.ephemerals.push(fig);
     }
   }
 

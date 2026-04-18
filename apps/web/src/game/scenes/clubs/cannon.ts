@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { AABB, GameScene, Trigger } from '@phobos/types';
+import type { AABB, GameScene, Interactable, Trigger } from '@phobos/types';
 import { SCENE_CONFIGS } from '../../sceneConfig';
 import { aabbFromCenter } from '../../collision';
 import {
@@ -7,6 +7,7 @@ import {
   makeRug, makeExitDoor, makeWindow, makeFramedPicture,
   makeBookshelf, makeArmchair, addAbandonment,
 } from './_shared';
+import { createNoteMesh } from '../../noteMesh';
 
 /**
  * CANNON DIAL ELM INTERIOR — Collegiate Gothic main hall. Oak wainscoting,
@@ -25,9 +26,16 @@ export class CannonInterior implements GameScene {
   private bounds: AABB[] = [];
   private triggerBoxes: Trigger[] = [];
   private fireGlow!: THREE.PointLight;
+  private pickup!: THREE.Mesh;
+  private pickupLight!: THREE.PointLight;
+  private pickupCollected = false;
   private readonly onExit: () => void;
+  private onPickup: (() => void) | null = null;
 
-  constructor(opts: { onExit: () => void }) { this.onExit = opts.onExit; }
+  constructor(opts: { onExit: () => void; onPickup?: () => void }) {
+    this.onExit = opts.onExit;
+    this.onPickup = opts.onPickup ?? null;
+  }
 
   load(): void {
     const cfg = SCENE_CONFIGS.cannon;
@@ -111,13 +119,22 @@ export class CannonInterior implements GameScene {
     this.group.add(makeBox(0.5, 0.55, 0.5, new THREE.Vector3(5.0, 0.275, hd - 3.0), 'wood_dark'));
     this.bounds.push(aabbFromCenter(5.0, 0.275, hd - 3.0, 0.28, 0.28, 0.28));
 
+    // Pickup: Clipboard on the dining table.
+    this.pickup = createNoteMesh(0.18, 0.3);
+    this.pickup.rotation.x = -Math.PI / 2;
+    this.pickup.position.set(2.0, 0.90, 0);
+    this.group.add(this.pickup);
+    this.pickupLight = new THREE.PointLight(0xffe0a0, 0.4, 2);
+    this.pickupLight.position.set(2.0, 1.2, 0);
+    this.group.add(this.pickupLight);
+
     // Abandonment debris.
     addAbandonment(this.group, w, d, h);
 
     makeExitDoor(this.group, 0, hd - 0.05, 1.4, 2.3, -1);
     this.triggerBoxes.push({
       id: 'exit_to_campus',
-      box: aabbFromCenter(0, 1.0, hd - 0.25, 1.2, 1.2, 0.35),
+      box: aabbFromCenter(0, 1.0, hd - 0.5, 3.0, 1.2, 0.8),
       onEnter: () => this.onExit(),
       once: true,
     });
@@ -139,8 +156,32 @@ export class CannonInterior implements GameScene {
   update(dt: number): void {
     this.time += dt;
     if (this.fireGlow) this.fireGlow.intensity = 0.85 + Math.sin(this.time * 10) * 0.06;
+    // Pickup light pulse.
+    if (!this.pickupCollected) {
+      this.pickupLight.intensity = 0.3 + Math.sin(this.time * 2.5) * 0.15;
+    }
   }
 
   colliders(): AABB[] { return this.bounds; }
   triggers(): Trigger[] { return this.triggerBoxes; }
+
+  interactables(): Interactable[] {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const scene = this;
+    return [
+      {
+        id: 'pickup_cannon',
+        box: aabbFromCenter(2.0, 0.90, 0, 0.2, 0.1, 0.2),
+        hint: 'read',
+        range: 2.5,
+        get enabled(): boolean { return !scene.pickupCollected; },
+        onInteract: () => {
+          scene.pickupCollected = true;
+          scene.pickup.visible = false;
+          scene.pickupLight.intensity = 0;
+          scene.onPickup?.();
+        },
+      },
+    ];
+  }
 }

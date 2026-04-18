@@ -143,7 +143,7 @@ export class TerraceInterior implements GameScene {
     makeExitDoor(this.group, 0, hd - 0.05, 1.4, 2.2, -1, 0x1a0e06, 0x3a2818);
     this.triggerBoxes.push({
       id: 'exit_to_campus',
-      box: aabbFromCenter(0, 1.0, hd - 0.25, 1.2, 1.2, 0.35),
+      box: aabbFromCenter(0, 1.0, hd - 0.5, 3.0, 1.2, 0.8),
       onEnter: () => this.onExit(),
       once: true,
     });

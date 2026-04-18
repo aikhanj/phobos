@@ -288,9 +288,17 @@ export class Player {
     lantern.add(plate);
 
     // The flame inside (unlit bright sphere)
+    // ── depthWrite fix ──────────────────────────────────────────────
+    // Transparent materials must set `depthWrite: false` so they don't
+    // write to the depth buffer. Without this, a semi-transparent
+    // fragment "claims" its depth slot and can occlude geometry behind
+    // it — even though the player can see through it. The halo below
+    // (line ~300) already had this set correctly; the flame was missing
+    // it, causing occasional artifacts where the glass struts behind
+    // the flame would disappear for a frame.
     this.lanternFlame = new THREE.Mesh(
       new THREE.SphereGeometry(0.035, 8, 6),
-      new THREE.MeshBasicMaterial({ color: 0xffd0a0, transparent: true, opacity: 0.95 }),
+      new THREE.MeshBasicMaterial({ color: 0xffd0a0, transparent: true, opacity: 0.95, depthWrite: false }),
     );
     this.lanternFlame.position.set(0, -0.01, 0);
     lantern.add(this.lanternFlame);

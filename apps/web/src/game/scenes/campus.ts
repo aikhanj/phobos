@@ -29,11 +29,13 @@ export class Campus implements GameScene {
   private time = 0;
 
   private readonly onEnterClub: (id: ClubId) => void;
+  private readonly lockedClubs: Set<ClubId>;
   private readonly bounds: AABB[] = [];
   private readonly triggerBoxes: Trigger[] = [];
 
-  constructor(opts: { onEnterClub: (id: ClubId) => void }) {
+  constructor(opts: { onEnterClub: (id: ClubId) => void; lockedClubs?: ClubId[] }) {
     this.onEnterClub = opts.onEnterClub;
+    this.lockedClubs = new Set(opts.lockedClubs ?? []);
   }
 
   load(): void {
@@ -59,6 +61,7 @@ export class Campus implements GameScene {
     this.buildCharter(38, 14);
 
     this.buildArenaWalls();
+    this.buildStreetSign();
   }
 
   unload(): void {
@@ -312,14 +315,31 @@ export class Campus implements GameScene {
     const frontNormalZ = z < 0 ? 1 : -1;
     // Building collider (a little inset so the door area stays walkable).
     this.bounds.push(aabbFromCenter(x, h / 2, z, w / 2, h / 2, d / 2));
-    // Entry trigger — a small volume just in front of the door.
-    const triggerZ = z + frontNormalZ * (d / 2 + 0.9);
-    this.triggerBoxes.push({
-      id: `enter_${id}`,
-      box: aabbFromCenter(x, 1.0, triggerZ, 1.4, 1.2, 0.9),
-      onEnter: () => this.onEnterClub(id),
-      once: true,
-    });
+
+    const isLocked = this.lockedClubs.has(id);
+
+    if (!isLocked) {
+      // Entry trigger — only for unlocked clubs.
+      const triggerZ = z + frontNormalZ * (d / 2 + 0.9);
+      this.triggerBoxes.push({
+        id: `enter_${id}`,
+        box: aabbFromCenter(x, 1.0, triggerZ, 1.4, 1.2, 0.9),
+        onEnter: () => this.onEnterClub(id),
+        once: true,
+      });
+    } else {
+      // Locked visual — dark boards nailed across the door area.
+      const doorZ = z + frontNormalZ * (d / 2 + 0.08);
+      // Horizontal boards
+      this.group.add(makeBox(1.5, 0.12, 0.06, new THREE.Vector3(x, 0.8, doorZ), 0x1a1008));
+      this.group.add(makeBox(1.5, 0.12, 0.06, new THREE.Vector3(x, 1.4, doorZ), 0x1a1008));
+      this.group.add(makeBox(1.5, 0.12, 0.06, new THREE.Vector3(x, 2.0, doorZ), 0x1a1008));
+      // Diagonal board (X shape implied by two crossed planks)
+      const plank = makeBox(0.1, 2.4, 0.04, new THREE.Vector3(x - 0.3, 1.15, doorZ + frontNormalZ * 0.02), 0x140c06);
+      plank.rotation.z = 0.35;
+      this.group.add(plank);
+    }
+
     // Sign plaque beside the door.
     this.addSignPlaque(x - w * 0.42, z + frontNormalZ * (d / 2 + 0.04), CLUB_LABEL[id], frontNormalZ);
     return frontNormalZ;
@@ -869,5 +889,39 @@ export class Campus implements GameScene {
     // End-wall chimneys.
     this.addChimney(x - w / 2 + 0.4, h + 0.3, z, 0.9, 2.2, brick);
     this.addChimney(x + w / 2 - 0.4, h + 0.3, z, 0.9, 2.2, brick);
+  }
+
+  private buildStreetSign(): void {
+    const signX = -40;
+    const signZ = -5;
+    const poleMat = new THREE.MeshLambertMaterial({ color: 0x2a2a2c, flatShading: true });
+    applyPS1Jitter(poleMat);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 3.6, 6), poleMat);
+    pole.position.set(signX, 1.8, signZ);
+    this.group.add(pole);
+    this.group.add(makeBox(3.2, 0.5, 0.06, new THREE.Vector3(signX, 3.3, signZ), 0x1a5028));
+    this.group.add(makeBox(3.3, 0.06, 0.07, new THREE.Vector3(signX, 3.55, signZ), 0xd0d0d0));
+    this.group.add(makeBox(3.3, 0.06, 0.07, new THREE.Vector3(signX, 3.05, signZ), 0xd0d0d0));
+    this.group.add(makeBox(0.06, 0.56, 0.07, new THREE.Vector3(signX - 1.6, 3.3, signZ), 0xd0d0d0));
+    this.group.add(makeBox(0.06, 0.56, 0.07, new THREE.Vector3(signX + 1.6, 3.3, signZ), 0xd0d0d0));
+    const letters = 'PROSPECT AVE';
+    const lw = 0.16;
+    const lg = 0.04;
+    const tw = letters.length * (lw + lg) - lg;
+    const sx = signX - tw / 2 + lw / 2;
+    for (let i = 0; i < letters.length; i++) {
+      if (letters[i] === ' ') continue;
+      this.group.add(makeEmissive(lw, 0.28, 0.02, new THREE.Vector3(sx + i * (lw + lg), 3.3, signZ + 0.04), 0xe0e0e0));
+    }
+    this.group.add(makeBox(1.6, 0.3, 0.05, new THREE.Vector3(signX, 2.85, signZ), 0x1a5028));
+    const sub = 'PRINCETON NJ';
+    const sw2 = 0.09;
+    const sg = 0.02;
+    const stw = sub.length * (sw2 + sg) - sg;
+    const ssx = signX - stw / 2 + sw2 / 2;
+    for (let i = 0; i < sub.length; i++) {
+      if (sub[i] === ' ') continue;
+      this.group.add(makeEmissive(sw2, 0.16, 0.02, new THREE.Vector3(ssx + i * (sw2 + sg), 2.85, signZ + 0.03), 0xd0d0d0));
+    }
   }
 }

@@ -73,24 +73,28 @@ export class RevealSequence {
       `flinch_count: ${Math.floor(Math.random() * 6 + 2)}`,
       `look_stillness: ${(Math.random() * 0.3 + 0.4).toFixed(2)}`,
       `session_duration: ${minutes}m ${seconds}s`,
-      `stimulus_response: ELEVATED`,
-      `subject_profile: MAPPED`,
-      `fear_architecture: COMPLETE`,
-      `subject_status: OPTIMAL`,
-      `calibration: COMPLETE`,
       '',
-      'recommend continued observation.',
+      `subject 4721: session terminated.`,
+      `subject 4721: profile absorbed.`,
+      '',
+      `subject 4722: session active.`,
+      `subject 4722: fear_score: ${this.deps.lastFearScore.toFixed(2)}`,
+      `subject 4722: calibration quality: EXCELLENT`,
+      '',
+      `you came looking for 4721.`,
     ];
 
-    await this.typeLines(dataLines, 120);
-    await sleep(800);
+    await this.typeLines(dataLines, 150);
+    await sleep(1200);
 
-    // Step 5: Final messages — clinical → personal
+    // Step 5: Final messages — clinical → personal → guilt
     this.clearOverlay();
-    await this.showFinalMessage('Calibration complete. Subject profile saved.');
-    await sleep(2000);
-    await this.showFinalMessage('I know what you\'re afraid of now.');
+    await this.showFinalMessage('You are subject 4722.');
     await sleep(2500);
+    await this.showFinalMessage('You filled out the form. You already knew.');
+    await sleep(3000);
+    await this.showFinalMessage('Calibration complete.');
+    await sleep(2000);
 
     // Step 6: Cut to black
     fade.setZIndex(40); // Above expanded corner box (z-index 35)
@@ -101,7 +105,7 @@ export class RevealSequence {
       await sleep(1000);
       try {
         const handle = voice.speak({
-          text: 'see you soon',
+          text: 'you filled out the form. you already knew.',
           voiceId: defaultVoiceId,
           gain: 0.7,
         });

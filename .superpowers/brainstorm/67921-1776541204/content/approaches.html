@@ -1,0 +1,50 @@
+<h2>Implementation Approach</h2>
+<p class="subtitle">Three ways to build the PS1 graphics pipeline. All deliver textures + CRT + vertex jitter, but differ in architecture.</p>
+
+<div class="options">
+  <div class="option" data-choice="layered" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Layered Pipeline (Recommended)</h3>
+      <p>Build three independent systems that stack on top of each other:</p>
+      <ol style="margin: 8px 0; padding-left: 20px; color: #ccc; font-size: 14px;">
+        <li><strong>Texture generator</strong> &mdash; new <code>textures.ts</code> module with canvas-drawn procedural textures (wood, concrete, wallpaper, metal, fabric). Each scene calls it to get materials. Replaces all <code>makeProp</code>/<code>makeWall</code> solid colors.</li>
+        <li><strong>Vertex jitter shader</strong> &mdash; custom <code>ShaderMaterial</code> wrapper that snaps vertex positions to a configurable grid in screen space. Applied per-material.</li>
+        <li><strong>CRT post-processing</strong> &mdash; Three.js <code>EffectComposer</code> with a single custom shader pass: scanlines + vignette + chromatic aberration + film grain. Runs after the scene renders.</li>
+      </ol>
+      <div style="margin-top: 12px; padding: 10px; background: #1a1a2e; border-radius: 6px; font-size: 13px; color: #8888aa;">
+        <strong>Pro:</strong> Each layer works independently &mdash; can test/debug textures without CRT, jitter without textures, etc.<br>
+        <strong>Pro:</strong> Minimal changes to existing scene code &mdash; just swap material creation calls<br>
+        <strong>Con:</strong> Vertex jitter via ShaderMaterial means rewriting material creation (can't use MeshLambertMaterial directly)
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="all-shader" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>All-in-One Shader Pipeline</h3>
+      <p>Single custom <code>PS1Material</code> that handles textures, vertex jitter, AND per-fragment effects (dithering, color banding) in one unified shader. CRT post-pass is still separate.</p>
+      <div style="margin-top: 12px; padding: 10px; background: #1a1a2e; border-radius: 6px; font-size: 13px; color: #8888aa;">
+        <strong>Pro:</strong> Maximum PS1 accuracy &mdash; can add affine texture warping in the same shader<br>
+        <strong>Pro:</strong> Single material type for everything<br>
+        <strong>Con:</strong> Harder to debug &mdash; one shader does everything<br>
+        <strong>Con:</strong> More complex to write and maintain in a hackathon
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="minimal-touch" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Minimal-Touch Overlay</h3>
+      <p>Keep existing materials mostly as-is. Add textures only to walls/floors (the biggest visual surfaces). Do CRT post-processing and vertex jitter as post-effects only (screen-space distortion, no per-vertex shader).</p>
+      <div style="margin-top: 12px; padding: 10px; background: #1a1a2e; border-radius: 6px; font-size: 13px; color: #8888aa;">
+        <strong>Pro:</strong> Fastest to implement &mdash; least code changes<br>
+        <strong>Pro:</strong> No risk of breaking existing scene geometry<br>
+        <strong>Con:</strong> Props still look like Minecraft blocks<br>
+        <strong>Con:</strong> Screen-space jitter doesn't look as authentic as per-vertex
+      </div>
+    </div>
+  </div>
+</div>
