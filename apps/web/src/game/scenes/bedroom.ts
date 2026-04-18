@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import type { AABB, GameScene, GazeTarget, Interactable, NoteId, SceneEvent, Trigger } from '@phobos/types';
 import { SCENE_CONFIGS } from '../sceneConfig';
 import { wallAABB, aabbFromCenter } from '../collision';
+import { createNoteMesh } from '../noteMesh';
+import { getTexture, type TextureType } from '../textures';
+import { applyPS1Jitter } from '../ps1Material';
 
 /**
  * BEDROOM — the primary scare theatre. A child's room, slightly wrong.
@@ -90,12 +93,12 @@ export class Bedroom implements GameScene {
     const hd = d / 2;
 
     // ── shell (wood-ish trim, muted purples for the moon wash) ─────────
-    this.group.add(this.makeWall(w, d, new THREE.Vector3(0, 0, 0), new THREE.Euler(-Math.PI / 2, 0, 0), 0x3e3340));
-    this.group.add(this.makeWall(w, d, new THREE.Vector3(0, h, 0), new THREE.Euler(Math.PI / 2, 0, 0), 0x2a2434));
-    this.group.add(this.makeWall(w, h, new THREE.Vector3(0, h / 2, -hd), new THREE.Euler(0, 0, 0), 0x564c68));
-    this.group.add(this.makeWall(w, h, new THREE.Vector3(0, h / 2, hd), new THREE.Euler(0, Math.PI, 0), 0x564c68));
-    this.group.add(this.makeWall(d, h, new THREE.Vector3(-hw, h / 2, 0), new THREE.Euler(0, Math.PI / 2, 0), 0x4e4460));
-    this.group.add(this.makeWall(d, h, new THREE.Vector3(hw, h / 2, 0), new THREE.Euler(0, -Math.PI / 2, 0), 0x4e4460));
+    this.group.add(this.makeWall(w, d, new THREE.Vector3(0, 0, 0), new THREE.Euler(-Math.PI / 2, 0, 0), 'wood_floor'));
+    this.group.add(this.makeWall(w, d, new THREE.Vector3(0, h, 0), new THREE.Euler(Math.PI / 2, 0, 0), 'plaster'));
+    this.group.add(this.makeWall(w, h, new THREE.Vector3(0, h / 2, -hd), new THREE.Euler(0, 0, 0), 'wallpaper'));
+    this.group.add(this.makeWall(w, h, new THREE.Vector3(0, h / 2, hd), new THREE.Euler(0, Math.PI, 0), 'wallpaper'));
+    this.group.add(this.makeWall(d, h, new THREE.Vector3(-hw, h / 2, 0), new THREE.Euler(0, Math.PI / 2, 0), 'wallpaper_torn'));
+    this.group.add(this.makeWall(d, h, new THREE.Vector3(hw, h / 2, 0), new THREE.Euler(0, -Math.PI / 2, 0), 'wallpaper'));
 
     // baseboard trim along all 4 walls for spatial reference
     this.group.add(this.makeProp(w - 0.02, 0.1, 0.04, new THREE.Vector3(0, 0.05, -hd + 0.02), 0x0a0608));
@@ -155,11 +158,10 @@ export class Bedroom implements GameScene {
     // ── ceiling hatch (initially sealed, unlocks near end of beat) ───
     this.buildCeilingHatch(0, h - 0.01, -0.8);
 
-    // ── narrative notes ──
-    const noteMat = new THREE.MeshLambertMaterial({ color: 0xe8dcc8, flatShading: true });
+    // ── narrative notes (aged paper — holes, stains, torn edges) ──
 
     // Note 3: private journal — on the nightstand
-    this.noteJournal = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.2), noteMat.clone());
+    this.noteJournal = createNoteMesh(0.15, 0.2);
     this.noteJournal.rotation.x = -Math.PI / 2;
     this.noteJournal.position.set(-hw + 0.45, 0.62, -0.5);
     this.noteJournal.visible = false;
@@ -170,7 +172,7 @@ export class Bedroom implements GameScene {
     this.group.add(this.noteJournalLight);
 
     // Note 4: wife's letter — near the toy chest
-    this.noteLetter = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 0.18), noteMat.clone());
+    this.noteLetter = createNoteMesh(0.14, 0.18);
     this.noteLetter.rotation.x = -Math.PI / 2;
     this.noteLetter.position.set(-hw + 0.5, 0.42, 1.2);
     this.noteLetter.visible = false;
@@ -250,7 +252,11 @@ export class Bedroom implements GameScene {
         range: 2.5,
         get hint(): string { return scene.wardrobeTargetAngle > 0.1 ? 'close' : 'open'; },
         onInteract: () => {
-          scene.wardrobeTargetAngle = scene.wardrobeTargetAngle > 0.1 ? 0 : Math.PI * 0.55;
+          // Max angle reduced from π*0.55 (~99°) to π*0.45 (~81°) to
+          // prevent the door's far edge from clipping through the left
+          // side panel of the wardrobe body during full swing. The
+          // interior is still clearly visible at 81° for scare events.
+          scene.wardrobeTargetAngle = scene.wardrobeTargetAngle > 0.1 ? 0 : Math.PI * 0.45;
         },
       },
       // Ceiling hatch — only pickable once Phobos unlocks it (enabled flips).
@@ -403,21 +409,21 @@ export class Bedroom implements GameScene {
 
   private buildBed(x: number, z: number): void {
     // Frame
-    this.group.add(this.makeProp(1.4, 0.3, 2.0, new THREE.Vector3(x, 0.15, z), 0x1a1210));
+    this.group.add(this.makeProp(1.4, 0.3, 2.0, new THREE.Vector3(x, 0.15, z), 'wood_light'));
     // Mattress
     this.group.add(this.makeProp(1.3, 0.15, 1.9, new THREE.Vector3(x, 0.38, z), 0x4a3a54));
     // Sheets / blanket covering most of the mattress
-    this.group.add(this.makeProp(1.32, 0.02, 1.5, new THREE.Vector3(x, 0.46, z + 0.15), 0x2a2238));
+    this.group.add(this.makeProp(1.32, 0.02, 1.5, new THREE.Vector3(x, 0.46, z + 0.15), 'fabric'));
     // Pillow (north end — head of bed)
-    this.group.add(this.makeProp(0.9, 0.12, 0.4, new THREE.Vector3(x + 0.05, 0.52, z - 0.75), 0x554a66));
+    this.group.add(this.makeProp(0.9, 0.12, 0.4, new THREE.Vector3(x + 0.05, 0.52, z - 0.75), 'fabric'));
     // Second pillow stacked
-    this.group.add(this.makeProp(0.85, 0.1, 0.38, new THREE.Vector3(x, 0.62, z - 0.78), 0x3a3050));
+    this.group.add(this.makeProp(0.85, 0.1, 0.38, new THREE.Vector3(x, 0.62, z - 0.78), 'fabric'));
     // Headboard (tall, silhouette against N wall)
-    this.group.add(this.makeProp(1.4, 0.9, 0.08, new THREE.Vector3(x, 0.75, z - 0.96), 0x120b08));
+    this.group.add(this.makeProp(1.4, 0.9, 0.08, new THREE.Vector3(x, 0.75, z - 0.96), 'wood_light'));
     // Footboard (short)
-    this.group.add(this.makeProp(1.4, 0.4, 0.08, new THREE.Vector3(x, 0.5, z + 0.96), 0x140c09));
+    this.group.add(this.makeProp(1.4, 0.4, 0.08, new THREE.Vector3(x, 0.5, z + 0.96), 'wood_light'));
     // Blanket folded at foot
-    this.group.add(this.makeProp(1.2, 0.1, 0.35, new THREE.Vector3(x, 0.51, z + 0.65), 0x24182a));
+    this.group.add(this.makeProp(1.2, 0.1, 0.35, new THREE.Vector3(x, 0.51, z + 0.65), 'fabric'));
 
     // Doll on pillow — the kind of thing Phobos might want you to look at
     this.group.add(this.makeProp(0.16, 0.26, 0.1, new THREE.Vector3(x - 0.1, 0.65, z - 0.8), 0x3a2a18)); // body
@@ -435,9 +441,9 @@ export class Bedroom implements GameScene {
 
   private buildNightstand(x: number, z: number): void {
     // Body
-    this.group.add(this.makeProp(0.44, 0.6, 0.4, new THREE.Vector3(x, 0.3, z), 0x180f0a));
+    this.group.add(this.makeProp(0.44, 0.6, 0.4, new THREE.Vector3(x, 0.3, z), 'wood_light'));
     // Drawer line
-    this.group.add(this.makeProp(0.42, 0.02, 0.01, new THREE.Vector3(x, 0.45, z + 0.2), 0x0a0604));
+    this.group.add(this.makeProp(0.42, 0.02, 0.01, new THREE.Vector3(x, 0.45, z + 0.2), 'wood_light'));
     // Knob
     this.group.add(this.makeProp(0.04, 0.04, 0.04, new THREE.Vector3(x, 0.52, z + 0.22), 0x5a4428));
     // Lamp base (small cylinder look)
@@ -475,20 +481,50 @@ export class Bedroom implements GameScene {
 
   private buildRug(x: number, z: number): void {
     // A dark patterned rug — just a flat tinted plane. Breaks up the floor.
+    //
+    // ── z-fighting fix (rug + border) ───────────────────────────────
+    // The rug and border are layered floor decals. They need:
+    //  1. Enough Y separation from the floor (Y=0) to avoid flickering.
+    //  2. Enough separation from *each other* so the border doesn't
+    //     z-fight with the rug underneath it.
+    //  3. polygonOffset as a safety net — negative factor/units bias
+    //     the depth value forward so the decal always wins vs the floor.
+    //     The border uses a stronger offset (-2) than the rug (-1) so
+    //     it reliably renders on top of the rug.
+    const rugMat = new THREE.MeshLambertMaterial({
+      map: getTexture('fabric'),
+      color: 0x3a1a20,
+      flatShading: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    });
+    applyPS1Jitter(rugMat);
     const rug = new THREE.Mesh(
       new THREE.PlaneGeometry(2.2, 1.4),
-      new THREE.MeshLambertMaterial({ color: 0x3a1a20, flatShading: true }),
+      rugMat,
     );
     rug.rotation.x = -Math.PI / 2;
-    rug.position.set(x, 0.005, z);
+    // Y raised from 0.005 → 0.025 (2.5 cm above floor)
+    rug.position.set(x, 0.025, z);
     this.group.add(rug);
-    // Border strip (slightly lighter)
+    // Border strip (slightly lighter, sits above the rug)
+    const borderMat = new THREE.MeshLambertMaterial({
+      map: getTexture('fabric'),
+      color: 0x5a2a30,
+      flatShading: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    applyPS1Jitter(borderMat);
     const border = new THREE.Mesh(
       new THREE.PlaneGeometry(2.0, 1.2),
-      new THREE.MeshLambertMaterial({ color: 0x5a2a30, flatShading: true }),
+      borderMat,
     );
     border.rotation.x = -Math.PI / 2;
-    border.position.set(x, 0.006, z);
+    // Y raised from 0.006 → 0.04 (1.5 cm above rug — clear separation)
+    border.position.set(x, 0.04, z);
     this.group.add(border);
   }
 
@@ -518,22 +554,24 @@ export class Bedroom implements GameScene {
     this.group.add(body);
 
     // back panel
-    body.add(this.makeProp(0.05, 2.0, 0.7, new THREE.Vector3(0.22, 1.0, 0), 0x0a0706));
+    body.add(this.makeProp(0.05, 2.0, 0.7, new THREE.Vector3(0.22, 1.0, 0), 'wood_dark'));
     // left panel
-    body.add(this.makeProp(0.45, 2.0, 0.05, new THREE.Vector3(0, 1.0, -0.35), 0x120d0b));
+    body.add(this.makeProp(0.45, 2.0, 0.05, new THREE.Vector3(0, 1.0, -0.35), 'wood_dark'));
     // right panel
-    body.add(this.makeProp(0.45, 2.0, 0.05, new THREE.Vector3(0, 1.0, 0.35), 0x120d0b));
+    body.add(this.makeProp(0.45, 2.0, 0.05, new THREE.Vector3(0, 1.0, 0.35), 'wood_dark'));
     // top
-    body.add(this.makeProp(0.45, 0.04, 0.72, new THREE.Vector3(0, 2.0, 0), 0x0e0a08));
+    body.add(this.makeProp(0.45, 0.04, 0.72, new THREE.Vector3(0, 2.0, 0), 'wood_dark'));
     // bottom (interior floor, very dark to suggest depth)
-    body.add(this.makeProp(0.42, 0.02, 0.68, new THREE.Vector3(0, 0.02, 0), 0x060404));
+    body.add(this.makeProp(0.42, 0.02, 0.68, new THREE.Vector3(0, 0.02, 0), 'wood_dark'));
 
     // Hinge pivots on south-west edge
+    // Pivot X shifted outward from -0.22 → -0.24 to give the swinging
+    // door extra clearance against the wardrobe body's left panel.
     this.wardrobeHinge = new THREE.Group();
-    this.wardrobeHinge.position.set(-0.22, 1.0, -0.35);
+    this.wardrobeHinge.position.set(-0.24, 1.0, -0.35);
     body.add(this.wardrobeHinge);
 
-    const door = this.makeProp(0.04, 1.96, 0.68, new THREE.Vector3(0, 0, 0.34), 0x1a1410);
+    const door = this.makeProp(0.04, 1.96, 0.68, new THREE.Vector3(0, 0, 0.34), 'wood_dark');
     this.wardrobeHinge.add(door);
     // door knob
     const knob = this.makeProp(0.04, 0.04, 0.04, new THREE.Vector3(0.03, 0, 0.64), 0x5a4228);
@@ -594,13 +632,16 @@ export class Bedroom implements GameScene {
     // Sill below
     this.group.add(this.makeProp(1.5, 0.08, 0.2, new THREE.Vector3(x, y - 0.55, z + 0.08), 0x0c0806));
     // Curtain strips on either side (long thin dark cloth)
-    this.group.add(this.makeProp(0.12, 1.3, 0.03, new THREE.Vector3(x - 0.75, y - 0.15, z + 0.1), 0x0e0608));
-    this.group.add(this.makeProp(0.12, 1.3, 0.03, new THREE.Vector3(x + 0.75, y - 0.15, z + 0.1), 0x0e0608));
+    this.group.add(this.makeProp(0.12, 1.3, 0.03, new THREE.Vector3(x - 0.75, y - 0.15, z + 0.1), 'fabric'));
+    this.group.add(this.makeProp(0.12, 1.3, 0.03, new THREE.Vector3(x + 0.75, y - 0.15, z + 0.1), 'fabric'));
 
     // Figure silhouette (fades in for window-scare event)
+    // depthWrite: false — starts fully transparent (opacity 0). Without
+    // this, invisible fragments would write to the depth buffer and
+    // "eat" the window glass behind the figure before it even appears.
     this.windowFigure = new THREE.Mesh(
       new THREE.PlaneGeometry(0.45, 0.8),
-      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0 }),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, depthWrite: false }),
     );
     this.windowFigure.position.set(x + 0.18, y - 0.05, z + 0.035);
     this.windowFigure.visible = false;
@@ -609,18 +650,18 @@ export class Bedroom implements GameScene {
 
   private buildChairWithCoat(x: number, z: number): void {
     // seat
-    this.group.add(this.makeProp(0.44, 0.04, 0.44, new THREE.Vector3(x, 0.48, z), 0x2a1d12));
+    this.group.add(this.makeProp(0.44, 0.04, 0.44, new THREE.Vector3(x, 0.48, z), 'wood_light'));
     // legs
     for (const [lx, lz] of [[-0.19, -0.19], [0.19, -0.19], [-0.19, 0.19], [0.19, 0.19]] as const) {
-      this.group.add(this.makeProp(0.04, 0.48, 0.04, new THREE.Vector3(x + lx, 0.24, z + lz), 0x1a0f08));
+      this.group.add(this.makeProp(0.04, 0.48, 0.04, new THREE.Vector3(x + lx, 0.24, z + lz), 'wood_light'));
     }
     // backrest
-    this.group.add(this.makeProp(0.44, 0.6, 0.04, new THREE.Vector3(x, 0.8, z + 0.2), 0x1e1510));
+    this.group.add(this.makeProp(0.44, 0.6, 0.04, new THREE.Vector3(x, 0.8, z + 0.2), 'wood_light'));
     // coat draped — blocky person-shape
-    this.group.add(this.makeProp(0.5, 0.7, 0.32, new THREE.Vector3(x, 0.75, z + 0.05), 0x1a141e));
+    this.group.add(this.makeProp(0.5, 0.7, 0.32, new THREE.Vector3(x, 0.75, z + 0.05), 'fabric'));
     // coat sleeve hanging
-    this.group.add(this.makeProp(0.12, 0.4, 0.14, new THREE.Vector3(x - 0.22, 0.55, z - 0.02), 0x18121c));
-    this.group.add(this.makeProp(0.12, 0.38, 0.14, new THREE.Vector3(x + 0.22, 0.55, z - 0.02), 0x18121c));
+    this.group.add(this.makeProp(0.12, 0.4, 0.14, new THREE.Vector3(x - 0.22, 0.55, z - 0.02), 'fabric'));
+    this.group.add(this.makeProp(0.12, 0.38, 0.14, new THREE.Vector3(x + 0.22, 0.55, z - 0.02), 'fabric'));
     // Hat perched on top — tilts into "a figure sitting" silhouette
     this.group.add(this.makeProp(0.26, 0.08, 0.26, new THREE.Vector3(x, 1.14, z + 0.05), 0x0c0808));
     this.group.add(this.makeProp(0.32, 0.04, 0.32, new THREE.Vector3(x, 1.1, z + 0.05), 0x0a0606));
@@ -637,7 +678,10 @@ export class Bedroom implements GameScene {
       const tex = makeDrawingTexture(p.variant);
       const plane = new THREE.Mesh(
         new THREE.PlaneGeometry(0.34, 0.34),
-        new THREE.MeshBasicMaterial({ map: tex, transparent: true }),
+        // depthWrite: false — drawing textures use alpha transparency for
+        // their outlines; without this the transparent pixels write depth
+        // and can clip the wall surface behind them.
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }),
       );
       plane.rotation.y = Math.PI / 2;
       plane.position.set(xWall + 0.01, p.y, p.z);
@@ -647,7 +691,7 @@ export class Bedroom implements GameScene {
 
   private buildEntryDoor(x: number, y: number, z: number): void {
     // Door hidden off-frame (x+1.5); `entryDoorClosed` slides it to x=0 behind the player.
-    this.entryDoor = this.makeProp(1.0, 2.0, 0.06, new THREE.Vector3(x + 1.5, y, z), 0x0a0605);
+    this.entryDoor = this.makeProp(1.0, 2.0, 0.06, new THREE.Vector3(x + 1.5, y, z), 'door');
     this.group.add(this.entryDoor);
     // Door frame (always visible)
     this.group.add(this.makeProp(0.08, 2.1, 0.06, new THREE.Vector3(-0.55, y, z), 0x110a06));
@@ -671,21 +715,23 @@ export class Bedroom implements GameScene {
     this.group.add(this.makeProp(0.04, 0.03, 1.0, new THREE.Vector3(x + 0.52, y - 0.01, z), 0x0a0806));
   }
 
-  private makeWall(w: number, h: number, p: THREE.Vector3, r: THREE.Euler, color: number): THREE.Mesh {
-    const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(w, h),
-      new THREE.MeshLambertMaterial({ color, flatShading: true, side: THREE.FrontSide }),
-    );
+  private makeWall(w: number, h: number, p: THREE.Vector3, r: THREE.Euler, appearance: number | TextureType): THREE.Mesh {
+    const mat = typeof appearance === 'string'
+      ? new THREE.MeshLambertMaterial({ map: getTexture(appearance), flatShading: true, side: THREE.FrontSide })
+      : new THREE.MeshLambertMaterial({ color: appearance, flatShading: true, side: THREE.FrontSide });
+    applyPS1Jitter(mat);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
     mesh.position.copy(p);
     mesh.rotation.copy(r);
     return mesh;
   }
 
-  private makeProp(w: number, h: number, d: number, p: THREE.Vector3, color: number): THREE.Mesh {
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(w, h, d),
-      new THREE.MeshLambertMaterial({ color, flatShading: true }),
-    );
+  private makeProp(w: number, h: number, d: number, p: THREE.Vector3, appearance: number | TextureType): THREE.Mesh {
+    const mat = typeof appearance === 'string'
+      ? new THREE.MeshLambertMaterial({ map: getTexture(appearance), flatShading: true })
+      : new THREE.MeshLambertMaterial({ color: appearance, flatShading: true });
+    applyPS1Jitter(mat);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
     mesh.position.copy(p);
     return mesh;
   }
