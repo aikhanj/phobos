@@ -759,6 +759,122 @@ async function main() {
       };
       log('phobos', observations[clubId] ?? 'another room. another subject.');
     });
+
+    // ── JUMP SCARE LAYER ────────────────────────────────────────────────
+    // The atmospheric loop above paces the player. These are the hits —
+    // authored stimuli the LLM can see land (via biosignal spikes) and
+    // either amplify or pull back from on its next 10s tick.
+    //
+    // Three beats per club:
+    //   14s — OPENING: flavored to the club's signature architecture.
+    //   38s — MID:     unambiguous commit; fires once player is settled.
+    //   55s — PEAK:    only at escalation ≥ 4; harder than mid, different type.
+
+    // 14s — OPENING SCARE, club-specific.
+    t.schedule(14000, () => {
+      switch (clubId) {
+        case 'tower':
+          // Tudor hall: flicker + low stinger + breath toward the shield.
+          bus.fire({ kind: 'flicker', duration: 0.25, pattern: 'hard' });
+          bus.fire({ kind: 'sound', asset: 'stinger_low', volume: 0.9 });
+          bus.fire({ kind: 'breath', intensity: 0.7 });
+          log('creature_director', 'the shield. it moved.');
+          break;
+        case 'cannon':
+          // Three shields: brief blackout + high stinger + stutter.
+          bus.fire({ kind: 'flicker', duration: 0.25, pattern: 'blackout' });
+          bus.fire({ kind: 'sound', asset: 'stinger_high', volume: 1.0 });
+          bus.fire({ kind: 'webcam_glitch', effect: 'stutter', durationS: 0.4, intensity: 0.8 });
+          log('audio_director', 'records opened.');
+          break;
+        case 'ivy':
+          // Darkest room: heartbeat slam + face-warp through the webcam.
+          bus.fire({ kind: 'sound', asset: 'heartbeat', volume: 1.0 });
+          bus.fire({ kind: 'webcam_glitch', effect: 'face_warp', durationS: 0.8, intensity: 0.95 });
+          bus.fire({ kind: 'flicker', duration: 0.4, pattern: 'hard' });
+          log('creature_director', 'a portrait blinked.');
+          break;
+        case 'cottage':
+          // Gilt mirror swap — grand hall suddenly isn't empty.
+          bus.fire({ kind: 'mirror_swap', variant: 'extra_figure' });
+          bus.fire({ kind: 'sound', asset: 'stinger_low', volume: 0.95 });
+          bus.fire({ kind: 'flicker', duration: 0.3, pattern: 'subtle' });
+          log('creature_director', 'check the mirror.');
+          break;
+        case 'capgown':
+          // Stained-glass shields pulse red; hammer-beam creak.
+          bus.fire({ kind: 'flicker', duration: 0.45, pattern: 'hard' });
+          bus.fire({ kind: 'sound', asset: 'stinger_high', volume: 1.0 });
+          bus.fire({ kind: 'sound', asset: 'impact', volume: 0.7 });
+          log('audio_director', 'the trusses shifted.');
+          break;
+        case 'colonial':
+          // Bright white room reads wrongness — dissonant tone + static burst.
+          bus.fire({ kind: 'sound', asset: 'tone_wrong', volume: 0.9 });
+          bus.fire({ kind: 'jumpscare', type: 'static_burst', durationS: 0.5 });
+          bus.fire({ kind: 'flicker', duration: 0.2, pattern: 'subtle' });
+          log('creature_director', 'the symmetry breaks.');
+          break;
+        case 'tigerinn':
+          // Pub taproom: heavy impact (something falls) + hearth flicker.
+          bus.fire({ kind: 'sound', asset: 'impact', volume: 1.0 });
+          bus.fire({ kind: 'sound', asset: 'stinger_low', volume: 0.85 });
+          bus.fire({ kind: 'flicker', duration: 0.35, pattern: 'hard' });
+          log('creature_director', 'the tiger moved.');
+          break;
+        case 'terrace':
+          // Massive stone hearth breathes. Fire "inhales" then slam.
+          bus.fire({ kind: 'breath', intensity: 0.85 });
+          bus.fire({ kind: 'sound', asset: 'stinger_low', volume: 0.9 });
+          bus.fire({ kind: 'flicker', duration: 0.4, pattern: 'hard' });
+          log('audio_director', 'the fire is breathing.');
+          break;
+        case 'cloister':
+          // Monastic stained glass: hard flicker + high stinger + wrong tone.
+          bus.fire({ kind: 'flicker', duration: 0.35, pattern: 'hard' });
+          bus.fire({ kind: 'sound', asset: 'stinger_high', volume: 1.0 });
+          bus.fire({ kind: 'sound', asset: 'tone_wrong', volume: 0.7 });
+          log('creature_director', 'the shields sang.');
+          break;
+        case 'charter':
+          // Cupola creak running backward + webcam delay — something up there.
+          bus.fire({ kind: 'sound', asset: 'reverse_creak', volume: 0.95 });
+          bus.fire({ kind: 'webcam_glitch', effect: 'delay', durationS: 0.7, intensity: 0.85 });
+          bus.fire({ kind: 'flicker', duration: 0.3, pattern: 'subtle' });
+          log('creature_director', 'above you.');
+          break;
+      }
+    });
+
+    // 38s — MID-SESSION COMMIT. Unambiguous hit. Fires regardless of escalation.
+    t.schedule(38000, () => {
+      bus.fire({ kind: 'jumpscare', type: 'static_burst', durationS: 0.7 });
+      bus.fire({ kind: 'sound', asset: 'stinger_high', volume: 1.0 });
+      bus.fire({ kind: 'webcam_glitch', effect: 'face_warp', durationS: 0.8, intensity: 0.9 });
+      bus.fire({ kind: 'flicker', duration: 0.5, pattern: 'hard' });
+      log('creature_director', 'now.');
+    });
+
+    // 55s — PEAK SCARE. Gated on escalation so first visits aren't overwhelming
+    // and the LLM's pacing director can let players build up to it across clubs.
+    if (escalation >= 4) {
+      t.schedule(55000, () => {
+        // Mirror clubs get the mirror_flash variant; others get static_burst.
+        const mirrorClubs = new Set<ClubId>(['cottage', 'colonial', 'cloister']);
+        const jumpType: 'mirror_flash' | 'static_burst' = mirrorClubs.has(clubId) ? 'mirror_flash' : 'static_burst';
+        bus.fire({ kind: 'jumpscare', type: jumpType, durationS: 0.9 });
+        bus.fire({ kind: 'sound', asset: 'stinger_high', volume: 1.0 });
+        bus.fire({ kind: 'sound', asset: 'impact', volume: 0.95 });
+        bus.fire({ kind: 'webcam_glitch', effect: 'distort', durationS: 1.0, intensity: 0.95 });
+        bus.fire({ kind: 'breath', intensity: 1.0 });
+        log('creature_director', 'closer.');
+      });
+    }
+
+    // 62s — RELEASE. Silence after the peak so the biosignal loop can relax.
+    t.schedule(62000, () => {
+      bus.fire({ kind: 'silence', duration: 5 });
+    });
   }
 
   // (Old basement/bedroom/attic scene code was here — removed. Game is Prospect Ave now.)
