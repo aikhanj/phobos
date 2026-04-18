@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type { AABB } from '@phobos/types';
 import { aabbFromCenter } from '../../collision';
+import { getTexture, type TextureType } from '../../textures';
+import { applyPS1Jitter } from '../../ps1Material';
 
 /** Unique identifier for each of the 10 eating clubs. */
 export type ClubId =
@@ -34,24 +36,26 @@ export const CLUB_LABEL: Record<ClubId, string> = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function makeWall(
-  w: number, h: number, p: THREE.Vector3, r: THREE.Euler, color: number,
+  w: number, h: number, p: THREE.Vector3, r: THREE.Euler, appearance: number | TextureType,
 ): THREE.Mesh {
-  const mesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(w, h),
-    new THREE.MeshLambertMaterial({ color, flatShading: true, side: THREE.FrontSide }),
-  );
+  const mat = typeof appearance === 'string'
+    ? new THREE.MeshLambertMaterial({ map: getTexture(appearance), flatShading: true, side: THREE.FrontSide })
+    : new THREE.MeshLambertMaterial({ color: appearance, flatShading: true, side: THREE.FrontSide });
+  applyPS1Jitter(mat);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
   mesh.position.copy(p);
   mesh.rotation.copy(r);
   return mesh;
 }
 
 export function makeBox(
-  w: number, h: number, d: number, p: THREE.Vector3, color: number,
+  w: number, h: number, d: number, p: THREE.Vector3, appearance: number | TextureType,
 ): THREE.Mesh {
-  const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(w, h, d),
-    new THREE.MeshLambertMaterial({ color, flatShading: true }),
-  );
+  const mat = typeof appearance === 'string'
+    ? new THREE.MeshLambertMaterial({ map: getTexture(appearance), flatShading: true })
+    : new THREE.MeshLambertMaterial({ color: appearance, flatShading: true });
+  applyPS1Jitter(mat);
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
   mesh.position.copy(p);
   return mesh;
 }
@@ -74,7 +78,7 @@ export function makeEmissive(
 export function buildShell(
   group: THREE.Group,
   w: number, h: number, d: number,
-  colors: { floor: number; ceiling: number; walls: number; baseboard?: number },
+  colors: { floor: number | TextureType; ceiling: number | TextureType; walls: number | TextureType; baseboard?: number | TextureType },
 ): AABB[] {
   const hw = w / 2, hd = d / 2;
   group.add(makeWall(w, d, new THREE.Vector3(0, 0, 0), new THREE.Euler(-Math.PI / 2, 0, 0), colors.floor));
@@ -109,9 +113,11 @@ export function makeColumn(
 ): void {
   const base = makeBox(0.5, 0.15, 0.5, new THREE.Vector3(x, 0.075, z), capColor);
   group.add(base);
+  const shaftMat = new THREE.MeshLambertMaterial({ color, flatShading: true });
+  applyPS1Jitter(shaftMat);
   const shaft = new THREE.Mesh(
     new THREE.CylinderGeometry(0.18, 0.2, h - 0.3, 12),
-    new THREE.MeshLambertMaterial({ color, flatShading: true }),
+    shaftMat,
   );
   shaft.position.set(x, 0.15 + (h - 0.3) / 2, z);
   group.add(shaft);
@@ -182,6 +188,7 @@ export function makeWindow(
   group.add(makeEmissive(w, h, 0.04, new THREE.Vector3(x, y, fz), paneColor));
   // Frame (4 sides + cross muntin).
   const frameMat = new THREE.MeshLambertMaterial({ color: frameColor, flatShading: true });
+  applyPS1Jitter(frameMat);
   const top = new THREE.Mesh(new THREE.BoxGeometry(w + t * 2, t, t), frameMat);
   top.position.set(x, y + h / 2, fz);
   group.add(top);
@@ -315,6 +322,145 @@ export function makeRug(
   group.add(makeBox(w - 0.3, 0.012, d - 0.3, new THREE.Vector3(x, 0.013, z), pattern));
 }
 
+/**
+ * Scatter abandoned debris throughout a room — overturned chairs, papers,
+ * broken shards, dust, cobwebs, fallen paintings. Sells the "decades
+ * abandoned" feel without any runtime cost (static geometry only).
+ */
+export function addAbandonment(
+  group: THREE.Group, w: number, d: number, h: number, density = 1.0,
+): void {
+  const hw = w / 2, hd = d / 2;
+  const r = () => Math.random();
+
+  // ── overturned chairs ──
+  const chairCount = Math.floor(4 * density);
+  for (let i = 0; i < chairCount; i++) {
+    const x = (r() - 0.5) * (w - 4);
+    const z = (r() - 0.5) * (d - 4);
+    const rot = r() * Math.PI;
+    const tilt = Math.PI / 2 + (r() - 0.5) * 0.4;
+    // seat
+    const seat = makeBox(0.45, 0.05, 0.45, new THREE.Vector3(x, 0.25, z), 0x1a100a);
+    seat.rotation.set(0, rot, tilt);
+    group.add(seat);
+    // back
+    const back = makeBox(0.45, 0.55, 0.05, new THREE.Vector3(x + Math.cos(rot) * 0.25, 0.35, z + Math.sin(rot) * 0.25), 0x1a100a);
+    back.rotation.set(0, rot, tilt * 0.8);
+    group.add(back);
+  }
+
+  // ── scattered papers / parchment ──
+  const paperCount = Math.floor(12 * density);
+  for (let i = 0; i < paperCount; i++) {
+    const x = (r() - 0.5) * (w - 2);
+    const z = (r() - 0.5) * (d - 2);
+    const paperMat = new THREE.MeshLambertMaterial({ color: r() > 0.3 ? 0xc8c0a0 : 0x9a9480, flatShading: true, side: THREE.DoubleSide });
+    applyPS1Jitter(paperMat);
+    const paper = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.25 + r() * 0.25, 0.35 + r() * 0.2),
+      paperMat,
+    );
+    paper.rotation.x = -Math.PI / 2;
+    paper.rotation.z = r() * Math.PI * 2;
+    paper.position.set(x, 0.01 + r() * 0.005, z);
+    group.add(paper);
+  }
+
+  // ── dust / dirt patches ──
+  const dustCount = Math.floor(8 * density);
+  for (let i = 0; i < dustCount; i++) {
+    const x = (r() - 0.5) * (w - 1);
+    const z = (r() - 0.5) * (d - 1);
+    const dustMat = new THREE.MeshLambertMaterial({ color: 0x2a2218, flatShading: true, side: THREE.DoubleSide });
+    applyPS1Jitter(dustMat);
+    const dust = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.8 + r() * 1.5, 0.6 + r() * 1.2),
+      dustMat,
+    );
+    dust.rotation.x = -Math.PI / 2;
+    dust.rotation.z = r() * Math.PI;
+    dust.position.set(x, 0.005, z);
+    group.add(dust);
+  }
+
+  // ── broken plate / glass shards ──
+  const shardClusters = Math.floor(5 * density);
+  for (let i = 0; i < shardClusters; i++) {
+    const cx = (r() - 0.5) * (w - 3);
+    const cz = (r() - 0.5) * (d - 3);
+    const count = 3 + Math.floor(r() * 5);
+    const isGlass = r() > 0.5;
+    for (let s = 0; s < count; s++) {
+      const shard = makeBox(
+        0.04 + r() * 0.1, 0.01, 0.03 + r() * 0.08,
+        new THREE.Vector3(cx + (r() - 0.5) * 0.5, 0.008, cz + (r() - 0.5) * 0.5),
+        isGlass ? 0x8aa0a8 : 0xd0c8b0,
+      );
+      shard.rotation.y = r() * Math.PI;
+      group.add(shard);
+    }
+  }
+
+  // ── cobwebs in upper corners ──
+  const corners: Array<[number, number]> = [[-hw + 0.05, -hd + 0.05], [hw - 0.05, -hd + 0.05], [-hw + 0.05, hd - 0.05], [hw - 0.05, hd - 0.05]];
+  for (const [cx, cz] of corners) {
+    if (r() > 0.35) {
+      const web = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.5 + r() * 1.0, 1.0 + r() * 0.8),
+        new THREE.MeshBasicMaterial({ color: 0x888880, transparent: true, opacity: 0.12, side: THREE.DoubleSide }),
+      );
+      web.position.set(cx, h - 0.5 - r() * 0.5, cz);
+      web.rotation.set(r() * 0.3, Math.atan2(-cz, -cx), r() * 0.2);
+      group.add(web);
+    }
+  }
+
+  // ── fallen / leaning paintings ──
+  const fallenCount = Math.floor(2 * density);
+  for (let i = 0; i < fallenCount; i++) {
+    const side = r() > 0.5 ? 1 : -1;
+    const onX = r() > 0.5;
+    const px = onX ? side * (hw - 0.12) : (r() - 0.5) * (w - 3);
+    const pz = onX ? (r() - 0.5) * (d - 4) : side * (hd - 0.12);
+    const lean = side * (0.1 + r() * 0.15);
+    const frame = makeBox(0.7 + r() * 0.4, 0.9 + r() * 0.3, 0.06, new THREE.Vector3(px, 0.5, pz), 0x0a0604);
+    if (onX) frame.rotation.z = lean;
+    else frame.rotation.x = lean;
+    group.add(frame);
+    const canvas = makeBox(0.55 + r() * 0.3, 0.7 + r() * 0.2, 0.03, new THREE.Vector3(px, 0.5, pz + 0.02), 0x4a3828);
+    if (onX) canvas.rotation.z = lean;
+    else canvas.rotation.x = lean;
+    group.add(canvas);
+  }
+
+  // ── toppled candlesticks ──
+  const candleCount = Math.floor(3 * density);
+  for (let i = 0; i < candleCount; i++) {
+    const x = (r() - 0.5) * (w - 3);
+    const z = (r() - 0.5) * (d - 3);
+    const stick = makeBox(0.06, 0.35, 0.06, new THREE.Vector3(x, 0.03, z), 0x8a7040);
+    stick.rotation.z = Math.PI / 2 + (r() - 0.5) * 0.3;
+    stick.rotation.y = r() * Math.PI;
+    group.add(stick);
+  }
+
+  // ── rubble / stone chips along walls ──
+  const rubbleCount = Math.floor(6 * density);
+  for (let i = 0; i < rubbleCount; i++) {
+    const wallSide = Math.floor(r() * 4);
+    let x: number, z: number;
+    if (wallSide === 0) { x = -hw + 0.3 + r() * 0.5; z = (r() - 0.5) * d; }
+    else if (wallSide === 1) { x = hw - 0.3 - r() * 0.5; z = (r() - 0.5) * d; }
+    else if (wallSide === 2) { x = (r() - 0.5) * w; z = -hd + 0.3 + r() * 0.5; }
+    else { x = (r() - 0.5) * w; z = hd - 0.3 - r() * 0.5; }
+    const chunk = makeBox(0.15 + r() * 0.2, 0.1 + r() * 0.12, 0.12 + r() * 0.18,
+      new THREE.Vector3(x, 0.06, z), 0x4a4440 + Math.floor(r() * 0x101010));
+    chunk.rotation.y = r() * Math.PI;
+    group.add(chunk);
+  }
+}
+
 /** Exit door marker — a dark panel + a frame, used as the return-to-campus visual. */
 export function makeExitDoor(
   group: THREE.Group, x: number, z: number, w: number, h: number,
@@ -331,9 +477,11 @@ export function makeExitDoor(
   // Threshold step.
   group.add(makeBox(w + 0.5, 0.05, 0.4, new THREE.Vector3(x, 0.025, z + facingNormalZ * 0.22), frameColor));
   // Doorknob.
+  const knobMat = new THREE.MeshLambertMaterial({ color: 0x8a7040, flatShading: true });
+  applyPS1Jitter(knobMat);
   const knob = new THREE.Mesh(
     new THREE.SphereGeometry(0.05, 8, 6),
-    new THREE.MeshLambertMaterial({ color: 0x8a7040, flatShading: true }),
+    knobMat,
   );
   knob.position.set(x + w * 0.35, h * 0.5, fz + facingNormalZ * 0.03);
   group.add(knob);
