@@ -11,9 +11,17 @@ import { Crosshair } from './ui/crosshair';
 import { FadeOverlay } from './ui/fadeOverlay';
 import { DevHud } from './ui/devHud';
 import { AudioManager } from './audio/audioManager';
-import { createVoiceEngine, LineBank, type VoiceEngine, type FearBucket } from '@phobos/voice';
+import {
+  createVoiceEngine,
+  LineBank,
+  CreatureVoice,
+  AmbientBus,
+  type VoiceEngine,
+  type FearBucket,
+} from '@phobos/voice';
 import { WebcamGhost } from './horror/webcamGhost';
-import type { AgentLogEntry } from '@phobos/types';
+import { EntityManager, PhobosEntity } from './game/entities';
+import type { AgentLogEntry, BiosignalState } from '@phobos/types';
 
 async function main() {
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -32,10 +40,11 @@ async function main() {
   let voice: VoiceEngine | null = null;
   let lineBank: LineBank | null = null;
   let webcamGhost: WebcamGhost | null = null;
+  let entityManager: EntityManager | null = null;
   const voiceProxyUrl = (import.meta.env.VITE_VOICE_PROXY_URL as string) || 'http://localhost:3001';
   const defaultVoiceId = import.meta.env.VITE_ELEVEN_DEMO_VOICE_ID as string | undefined;
 
-  // Per-frame: drive player, update voice listener to camera pose.
+  // Per-frame: drive player, update voice listener to camera pose, tick entities.
   const _fwd = new THREE.Vector3();
   engine.onUpdate = (dt) => {
     player.update(dt);
@@ -48,6 +57,26 @@ async function main() {
         { x: 0, y: 1, z: 0 },
       );
     }
+    entityManager?.update(dt);
+  };
+
+  // Biosignal tick (every 500ms). For now we feed a zero state since
+  // MediaPipe isn't wired in Phase 2 yet — this still drives the flat-period
+  // filler clock and is ready for real fear scores to flow through.
+  engine.onBiosignalTick = () => {
+    if (!entityManager) return;
+    const state: BiosignalState = {
+      fearScore: 0,
+      bpm: 0,
+      gazeAversion: 0,
+      flinchCount: 0,
+      timeInScene: 0,
+      lookStillness: 0,
+      retreatVelocity: 0,
+      gazeDwellMs: {},
+      timestamp: Date.now(),
+    };
+    entityManager.onBiosignal(state);
   };
 
   // Crosshair lights up when targeting an interactable; E triggers it.
@@ -384,7 +413,19 @@ async function main() {
       });
       // Warm the TTS cache in the background so first fires are near-instant.
       void lineBank.preWarm().catch((e) => console.warn('[voice] prewarm failed:', e));
+
+      // Phobos entity — persistent across scenes, driven by biosignal spikes.
+      const ambientBus = new AmbientBus(audioCtx, audioMaster, 0.0);
+      const creatureVoice = new CreatureVoice(voice, lineBank, ambientBus);
+      const phobos = new PhobosEntity(voice, creatureVoice);
+      entityManager = new EntityManager({
+        scene: engine.scene,
+        camera: engine.camera,
+        phobos,
+        log: (source, message) => log(source, message),
+      });
       log('system', 'voice engine online.');
+      log('system', 'phobos entity spawned.');
     } else if (!defaultVoiceId) {
       log('system', 'voice engine disabled (no VITE_ELEVEN_DEMO_VOICE_ID).');
     }
@@ -401,11 +442,24 @@ async function main() {
     loadBasement();
   });
 
-  // Dev: press V to fire a test line from wherever the player is looking.
+  // Dev keys:
+  //   V — authored whisper from current fear bucket
+  //   B — simulate a fear spike (Phobos reveals + dynamic SFX). Scales with shift.
   document.addEventListener('keydown', (e) => {
-    if (e.code !== 'KeyV') return;
-    if (!voice || !lineBank) return;
-    speakAs('medium');
+    if (e.code === 'KeyV') {
+      if (!voice || !lineBank) return;
+      speakAs('medium');
+      return;
+    }
+    if (e.code === 'KeyB' && entityManager) {
+      const score = e.shiftKey ? 0.9 : 0.65 + Math.random() * 0.2;
+      entityManager.triggerSpike({
+        score,
+        delta: 0.35,
+        bpm: 88 + Math.floor(Math.random() * 30),
+        timestamp: Date.now(),
+      });
+    }
   });
 
   // 2) Pointer unlock overlay ("click to resume")

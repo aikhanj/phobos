@@ -155,6 +155,34 @@ export interface Trigger {
   once?: boolean;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Entities — Phobos's embodied presence in the world
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Visibility state for an entity. The director walks this ladder:
+ *   hidden      → no mesh rendered, no AABB
+ *   peripheral  → faint silhouette at edge of view, long-range
+ *   revealed    → clearly visible at mid-range
+ *   close       → in-your-face, full opacity
+ */
+export type EntityVisibility = 'hidden' | 'peripheral' | 'revealed' | 'close';
+
+/**
+ * Snapshot of a biosignal-derived fear spike. Emitted by EntityManager when
+ * fearScore climbs fast enough; feeds dynamic SFX generation.
+ */
+export interface FearSpike {
+  /** Fear score at the moment of the spike (0-1). */
+  score: number;
+  /** Delta over the spike detection window (positive = rising). */
+  delta: number;
+  /** Current heart rate in bpm, or 0 if not detected. */
+  bpm: number;
+  /** Wall-clock ms. */
+  timestamp: number;
+}
+
 /**
  * A world-space object the player can look at (crosshair lights up) and
  * then interact with by pressing E. Scenes register these via
