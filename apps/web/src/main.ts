@@ -4,6 +4,21 @@ import { Player } from './game/player';
 import { Basement } from './game/scenes/basement';
 import { Bedroom } from './game/scenes/bedroom';
 import { Attic } from './game/scenes/attic';
+import { Campus } from './game/scenes/campus';
+import {
+  type ClubId,
+  CLUB_LABEL,
+  TowerInterior,
+  CannonInterior,
+  IvyInterior,
+  CottageInterior,
+  CapGownInterior,
+  ColonialInterior,
+  TigerInnInterior,
+  TerraceInterior,
+  CloisterInterior,
+  CharterInterior,
+} from './game/scenes/clubs';
 import { Timeline } from './game/timeline';
 import { TitleScreen } from './ui/titleScreen';
 import { CornerBox } from './ui/cornerBox';
@@ -268,6 +283,55 @@ async function main() {
     activeTimeline?.cancel();
     activeTimeline = t;
     return t;
+  };
+
+  // ── Prospect Avenue: campus + 10 club interiors ──────────────────────
+
+  const loadCampus = (): void => {
+    const campus = new Campus({
+      onEnterClub: (id) => { void enterClub(id); },
+    });
+    engine.loadScene(campus);
+    engine.camera.position.copy(campus.spawnPoint);
+    devHud.setStatus('SCENE · prospect ave · walk up to any club door');
+    devHud.flash('>> PROSPECT AVE — 10 CLUBS <<', 3000);
+    log('system', 'prospect ave. the clubs are still standing.');
+  };
+
+  const clubCtorByIdLocal = {
+    tower:    (onExit: () => void) => new TowerInterior({ onExit }),
+    cannon:   (onExit: () => void) => new CannonInterior({ onExit }),
+    ivy:      (onExit: () => void) => new IvyInterior({ onExit }),
+    cottage:  (onExit: () => void) => new CottageInterior({ onExit }),
+    capgown:  (onExit: () => void) => new CapGownInterior({ onExit }),
+    colonial: (onExit: () => void) => new ColonialInterior({ onExit }),
+    tigerinn: (onExit: () => void) => new TigerInnInterior({ onExit }),
+    terrace:  (onExit: () => void) => new TerraceInterior({ onExit }),
+    cloister: (onExit: () => void) => new CloisterInterior({ onExit }),
+    charter:  (onExit: () => void) => new CharterInterior({ onExit }),
+  } satisfies Record<ClubId, (onExit: () => void) => { spawnPoint: THREE.Vector3 }>;
+
+  const enterClub = async (id: ClubId): Promise<void> => {
+    player.setInputEnabled(false);
+    log('system', `entering ${CLUB_LABEL[id]}.`);
+    await fade.fadeToBlack(500);
+    const room = clubCtorByIdLocal[id](() => { void exitToCampus(); });
+    engine.loadScene(room as unknown as Parameters<typeof engine.loadScene>[0]);
+    engine.camera.position.copy(room.spawnPoint);
+    devHud.setStatus(`SCENE · ${CLUB_LABEL[id]} · walk to the door to leave`);
+    await new Promise((r) => setTimeout(r, 180));
+    await fade.fadeFromBlack(700);
+    player.setInputEnabled(true);
+  };
+
+  const exitToCampus = async (): Promise<void> => {
+    player.setInputEnabled(false);
+    log('system', 'back to prospect ave.');
+    await fade.fadeToBlack(500);
+    loadCampus();
+    await new Promise((r) => setTimeout(r, 150));
+    await fade.fadeFromBlack(700);
+    player.setInputEnabled(true);
   };
 
   // ── scene factories (defined forward, swap in the transitions below) ──
@@ -935,8 +999,11 @@ async function main() {
       engine.onAgentTick = () => { runAudioDirectorTick(); };
     }
 
-    // Load first scene & start the ritual.
-    loadBasement();
+    // Load the campus — Prospect Ave — as the opening scene. Walk up to any
+    // of the 10 eating-club doors to enter that club's interior.
+    loadCampus();
+    // Dev escape hatch into the existing horror arc.
+    (window as unknown as { __loadBasement: () => void }).__loadBasement = loadBasement;
   });
 
   // Dev keys:

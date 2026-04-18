@@ -132,21 +132,28 @@ export class Engine {
   /** Swap hemisphere tint per scene so the broad fill reads right for each room. */
   private applyHemi(name: string): void {
     switch (name) {
+      case 'campus':
+        this.hemi.color.setHex(0x8a9060); // overcast green-filtered canopy
+        this.hemi.groundColor.setHex(0x1a180c);
+        this.hemi.intensity = 0.85;
+        break;
       case 'basement':
-        this.hemi.color.setHex(0xa89880); // dusty warm
-        this.hemi.groundColor.setHex(0x2a1f14);
-        this.hemi.intensity = 0.65;
-        break;
+        this.hemi.color.setHex(0xa89880); this.hemi.groundColor.setHex(0x2a1f14); this.hemi.intensity = 0.65; break;
       case 'bedroom':
-        this.hemi.color.setHex(0x9ea6d8); // cold moonwash
-        this.hemi.groundColor.setHex(0x342a40);
-        this.hemi.intensity = 0.75;
-        break;
+        this.hemi.color.setHex(0x9ea6d8); this.hemi.groundColor.setHex(0x342a40); this.hemi.intensity = 0.75; break;
       case 'attic':
-        this.hemi.color.setHex(0x8a7250); // starved timber
-        this.hemi.groundColor.setHex(0x1a1008);
-        this.hemi.intensity = 0.5;
-        break;
+        this.hemi.color.setHex(0x8a7250); this.hemi.groundColor.setHex(0x1a1008); this.hemi.intensity = 0.5; break;
+      // ── eating clubs (interiors) ──
+      case 'tower':    this.hemi.color.setHex(0xb49878); this.hemi.groundColor.setHex(0x2a1c10); this.hemi.intensity = 0.7; break;
+      case 'cannon':   this.hemi.color.setHex(0xa89890); this.hemi.groundColor.setHex(0x1c1818); this.hemi.intensity = 0.6; break;
+      case 'ivy':      this.hemi.color.setHex(0xb08868); this.hemi.groundColor.setHex(0x1e1208); this.hemi.intensity = 0.7; break;
+      case 'cottage':  this.hemi.color.setHex(0xdac8a8); this.hemi.groundColor.setHex(0x282018); this.hemi.intensity = 0.85; break;
+      case 'capgown':  this.hemi.color.setHex(0x9e9898); this.hemi.groundColor.setHex(0x141218); this.hemi.intensity = 0.6; break;
+      case 'colonial': this.hemi.color.setHex(0xc8bc98); this.hemi.groundColor.setHex(0x1c1c18); this.hemi.intensity = 0.8; break;
+      case 'tigerinn': this.hemi.color.setHex(0x9c7848); this.hemi.groundColor.setHex(0x18100a); this.hemi.intensity = 0.55; break;
+      case 'terrace':  this.hemi.color.setHex(0xa48870); this.hemi.groundColor.setHex(0x18120a); this.hemi.intensity = 0.6; break;
+      case 'cloister': this.hemi.color.setHex(0x98a0a8); this.hemi.groundColor.setHex(0x121820); this.hemi.intensity = 0.65; break;
+      case 'charter':  this.hemi.color.setHex(0xd4c4a0); this.hemi.groundColor.setHex(0x201a14); this.hemi.intensity = 0.85; break;
     }
   }
 
