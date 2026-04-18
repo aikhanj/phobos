@@ -3,6 +3,8 @@ import type { AABB, GameScene, Trigger } from '@phobos/types';
 import { aabbFromCenter } from '../collision';
 import type { ClubId } from './clubs/_shared';
 import { CLUB_LABEL, makeBox, makeEmissive } from './clubs/_shared';
+import { getTexture } from '../textures';
+import { applyPS1Jitter } from '../ps1Material';
 
 /**
  * CAMPUS — Prospect Avenue, Princeton.
@@ -79,9 +81,9 @@ export class Campus implements GameScene {
       this.canopy.position.y = 18 + Math.sin(this.time * 0.4) * 0.1;
     }
     for (const lamp of this.lamps) {
-      const base = 0.55;
-      const flicker = Math.sin(this.time * 7 + lamp.phase) * 0.2;
-      const drop = Math.random() < 0.003 ? 0.1 : 1.0;
+      const base = 1.3;
+      const flicker = Math.sin(this.time * 5 + lamp.phase) * 0.15;
+      const drop = Math.random() < 0.004 ? 0.15 : 1.0;
       lamp.light.intensity = Math.max(0, base * (1 + flicker) * drop);
     }
   }
@@ -93,17 +95,21 @@ export class Campus implements GameScene {
 
   private buildGroundAndRoad(): void {
     // Mossy grounds flanking the avenue.
+    const groundMat = new THREE.MeshLambertMaterial({ color: 0x28341a, flatShading: true });
+    applyPS1Jitter(groundMat);
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(130, 70),
-      new THREE.MeshLambertMaterial({ color: 0x28341a, flatShading: true }),
+      groundMat,
     );
     ground.rotation.x = -Math.PI / 2;
     this.group.add(ground);
 
-    // Sidewalk strips along the road (stone grey).
+    // Sidewalk strips along the road (concrete texture).
+    const swMat = new THREE.MeshLambertMaterial({ map: getTexture('concrete'), flatShading: true });
+    applyPS1Jitter(swMat);
     const sw = new THREE.Mesh(
       new THREE.PlaneGeometry(120, 2),
-      new THREE.MeshLambertMaterial({ color: 0x5c5c5c, flatShading: true }),
+      swMat,
     );
     sw.rotation.x = -Math.PI / 2;
     sw.position.set(0, 0.005, -5.5);
@@ -113,20 +119,24 @@ export class Campus implements GameScene {
     this.group.add(sw2);
 
     // Cracked asphalt road (dark grey with crack strips).
+    const roadMat = new THREE.MeshLambertMaterial({ color: 0x2e2e30, flatShading: true });
+    applyPS1Jitter(roadMat);
     const road = new THREE.Mesh(
       new THREE.PlaneGeometry(120, 8),
-      new THREE.MeshLambertMaterial({ color: 0x2e2e30, flatShading: true }),
+      roadMat,
     );
     road.rotation.x = -Math.PI / 2;
     road.position.set(0, 0.002, 0);
     this.group.add(road);
 
     // Dashed yellow centre line (broken segments).
+    const dashMat = new THREE.MeshLambertMaterial({ color: 0xb8a040, flatShading: true });
+    applyPS1Jitter(dashMat);
     for (let x = -55; x <= 55; x += 3) {
       if (Math.random() < 0.3) continue;
       const dash = new THREE.Mesh(
         new THREE.PlaneGeometry(1.4, 0.15),
-        new THREE.MeshLambertMaterial({ color: 0xb8a040, flatShading: true }),
+        dashMat,
       );
       dash.rotation.x = -Math.PI / 2;
       dash.position.set(x, 0.004, 0);
@@ -134,10 +144,12 @@ export class Campus implements GameScene {
     }
 
     // Crack lines (thin dark rectangles scattered on the road).
+    const crackMat = new THREE.MeshLambertMaterial({ color: 0x0a0a0c, flatShading: true });
+    applyPS1Jitter(crackMat);
     for (let i = 0; i < 30; i++) {
       const crack = new THREE.Mesh(
         new THREE.PlaneGeometry(0.4 + Math.random() * 1.5, 0.04),
-        new THREE.MeshLambertMaterial({ color: 0x0a0a0c, flatShading: true }),
+        crackMat,
       );
       crack.rotation.x = -Math.PI / 2;
       crack.rotation.z = Math.random() * Math.PI;
@@ -146,10 +158,12 @@ export class Campus implements GameScene {
     }
 
     // Kudzu patches on the road (green irregular shapes).
+    const kudzuMat = new THREE.MeshLambertMaterial({ color: 0x2a4028, flatShading: true });
+    applyPS1Jitter(kudzuMat);
     for (let i = 0; i < 14; i++) {
       const patch = new THREE.Mesh(
         new THREE.PlaneGeometry(1.2 + Math.random(), 1.2 + Math.random()),
-        new THREE.MeshLambertMaterial({ color: 0x2a4028, flatShading: true }),
+        kudzuMat,
       );
       patch.rotation.x = -Math.PI / 2;
       patch.position.set(-55 + Math.random() * 110, 0.003, (Math.random() - 0.5) * 7);
@@ -167,9 +181,11 @@ export class Campus implements GameScene {
   private buildOverheadCanopy(): void {
     // One large dark-green plane as the canopy "ceiling" — reads as dense
     // forest cover from below.
+    const canopyMat = new THREE.MeshLambertMaterial({ color: 0x0e1a0c, flatShading: true, side: THREE.DoubleSide });
+    applyPS1Jitter(canopyMat);
     this.canopy = new THREE.Mesh(
       new THREE.PlaneGeometry(130, 70),
-      new THREE.MeshLambertMaterial({ color: 0x0e1a0c, flatShading: true, side: THREE.DoubleSide }),
+      canopyMat,
     );
     this.canopy.rotation.x = Math.PI / 2;
     this.canopy.position.y = 18;
@@ -180,21 +196,31 @@ export class Campus implements GameScene {
     for (let x = -50; x <= 50; x += 14) {
       for (const side of [-1, 1]) {
         const z = side * 6;
+        const postMat = new THREE.MeshLambertMaterial({ color: 0x100c10, flatShading: true });
+        applyPS1Jitter(postMat);
         const post = new THREE.Mesh(
           new THREE.CylinderGeometry(0.1, 0.14, 4.2, 6),
-          new THREE.MeshLambertMaterial({ color: 0x100c10, flatShading: true }),
+          postMat,
         );
         post.position.set(x, 2.1, z);
         this.group.add(post);
         const arm = makeBox(0.4, 0.1, 0.1, new THREE.Vector3(x, 4.1, z - side * 0.25), 0x100c10);
         this.group.add(arm);
+        // Bright glowing bulb.
         const bulb = new THREE.Mesh(
-          new THREE.SphereGeometry(0.18, 8, 6),
-          new THREE.MeshBasicMaterial({ color: 0x887040 }),
+          new THREE.SphereGeometry(0.22, 8, 6),
+          new THREE.MeshBasicMaterial({ color: 0xffd090 }),
         );
         bulb.position.set(x, 4.0, z - side * 0.55);
         this.group.add(bulb);
-        const light = new THREE.PointLight(0x886040, 0.55, 5, 2.0);
+        // Warm glow halo around the bulb.
+        const halo = new THREE.Mesh(
+          new THREE.SphereGeometry(0.7, 8, 6),
+          new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.12 }),
+        );
+        halo.position.copy(bulb.position);
+        this.group.add(halo);
+        const light = new THREE.PointLight(0xffa050, 1.4, 12, 1.8);
         light.position.copy(bulb.position);
         this.group.add(light);
         this.lamps.push({ light, phase: Math.random() * 100 });
@@ -205,6 +231,7 @@ export class Campus implements GameScene {
   private buildDistantCampus(): void {
     // McCosh Hall's spire visible above the north treeline.
     const stoneMat = new THREE.MeshLambertMaterial({ color: 0x3a3a3e, flatShading: true });
+    applyPS1Jitter(stoneMat);
     const base = new THREE.Mesh(new THREE.BoxGeometry(3, 12, 3), stoneMat);
     base.position.set(0, 6, -45);
     this.group.add(base);
@@ -221,7 +248,9 @@ export class Campus implements GameScene {
     // the clubs — the "woods have crept close" feel.
     const trunkGeom = new THREE.CylinderGeometry(0.22, 0.34, 5.5, 6);
     const trunkMat = new THREE.MeshLambertMaterial({ color: 0x1a1008, flatShading: true });
+    applyPS1Jitter(trunkMat);
     const canopyGeom = new THREE.SphereGeometry(2.2, 6, 5);
+    // No jitter on instanced canopy mesh — vertex jitter on InstancedMesh can look wrong.
     const canopyMat = new THREE.MeshLambertMaterial({ color: 0x0f1d10, flatShading: true });
 
     const count = 140;
@@ -317,6 +346,7 @@ export class Campus implements GameScene {
     this.group.add(door);
     // Door frame.
     const frameMat = new THREE.MeshLambertMaterial({ color: 0x1a0e06, flatShading: true });
+    applyPS1Jitter(frameMat);
     const t = 0.12;
     const top = new THREE.Mesh(new THREE.BoxGeometry(1.3 + t * 2, t, t), frameMat);
     top.position.set(x, 2.3 + t / 2, fz);
@@ -348,6 +378,7 @@ export class Campus implements GameScene {
     this.group.add(pane);
     // Cross muntins.
     const frameMat = new THREE.MeshLambertMaterial({ color: 0x0a0604, flatShading: true });
+    applyPS1Jitter(frameMat);
     const t = 0.06;
     for (const side of [-1, 1]) {
       const edge = new THREE.Mesh(new THREE.BoxGeometry(t, h + t * 2, t), frameMat);
@@ -378,7 +409,8 @@ export class Campus implements GameScene {
   private addPeakedRoof(x: number, z: number, w: number, d: number, bodyH: number, color: number, rh = 2.4): void {
     const slabW = Math.sqrt((w / 2) * (w / 2) + rh * rh) + 0.1;
     const angle = Math.atan2(w / 2, rh);
-    const mat = new THREE.MeshLambertMaterial({ color, flatShading: true });
+    const mat = new THREE.MeshLambertMaterial({ map: getTexture('wood_dark'), flatShading: true });
+    applyPS1Jitter(mat);
     const l = new THREE.Mesh(new THREE.BoxGeometry(slabW, 0.25, d + 0.4), mat);
     l.position.set(x - w / 4, bodyH + rh / 2, z);
     l.rotation.z = angle;
@@ -398,6 +430,7 @@ export class Campus implements GameScene {
     tri.setIndex([0, 1, 2]);
     tri.computeVertexNormals();
     const gableMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(color).multiplyScalar(0.8).getHex(), flatShading: true, side: THREE.DoubleSide });
+    applyPS1Jitter(gableMat);
     const gableN = new THREE.Mesh(tri, gableMat);
     gableN.position.set(x, bodyH, z + d / 2 + 0.01);
     this.group.add(gableN);
@@ -497,6 +530,7 @@ export class Campus implements GameScene {
     this.addWindowPane(x + 1.5, 4.2, z + frontZ * d / 2, 1.1, 1.5, frontZ, 0x2a2810);
     // Ivy covering the left portion (the club's namesake).
     const ivyMat = new THREE.MeshLambertMaterial({ color: 0x1a3818, flatShading: true });
+    applyPS1Jitter(ivyMat);
     for (let i = 0; i < 10; i++) {
       const sh = h * (0.5 + Math.random() * 0.45);
       const sx = x - w / 2 + Math.random() * w * 0.6;
@@ -533,6 +567,7 @@ export class Campus implements GameScene {
     this.group.add(makeBox(portW + 0.6, 0.35, 0.3, new THREE.Vector3(x, portH, z + frontZ * (d / 2 + 0.7)), whiteTrim));
     // Pediment triangle.
     const pedMat = new THREE.MeshLambertMaterial({ color: whiteTrim, flatShading: true, side: THREE.DoubleSide });
+    applyPS1Jitter(pedMat);
     const pTri = new THREE.BufferGeometry();
     pTri.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-portW / 2 - 0.3, 0, 0, portW / 2 + 0.3, 0, 0, 0, 0.9, 0]), 3));
     pTri.setIndex([0, 1, 2]);
@@ -606,9 +641,11 @@ export class Campus implements GameScene {
       // Column base.
       this.group.add(makeBox(0.7, 0.2, 0.7, new THREE.Vector3(x + ox, 0.1, portZ), 0xc8b88c));
       // Column shaft (cylinder).
+      const colShaftMat = new THREE.MeshLambertMaterial({ color: columnColor, flatShading: true });
+      applyPS1Jitter(colShaftMat);
       const shaft = new THREE.Mesh(
         new THREE.CylinderGeometry(0.28, 0.3, columnH - 0.4, 14),
-        new THREE.MeshLambertMaterial({ color: columnColor, flatShading: true }),
+        colShaftMat,
       );
       shaft.position.set(x + ox, 0.2 + (columnH - 0.4) / 2, portZ);
       this.group.add(shaft);
@@ -623,6 +660,7 @@ export class Campus implements GameScene {
     pedTri.setIndex([0, 1, 2]);
     pedTri.computeVertexNormals();
     const pedMat = new THREE.MeshLambertMaterial({ color: white, flatShading: true, side: THREE.DoubleSide });
+    applyPS1Jitter(pedMat);
     const ped = new THREE.Mesh(pedTri, pedMat);
     ped.position.set(x, h + 0.35, portZ);
     this.group.add(ped);
@@ -691,9 +729,11 @@ export class Campus implements GameScene {
     this.addPeakedRoof(x, z, w, d, h, 0x2a1e14, 2.4);
     this.addPeakedRoof(x + w / 2 + 1.5, z - 1, 4.0, 4.0, h - 1.5, 0x2a1e14, 1.6);
     // Flagstone terrace out front.
+    const terraceMat = new THREE.MeshLambertMaterial({ color: 0x7a7060, flatShading: true });
+    applyPS1Jitter(terraceMat);
     const terrace = new THREE.Mesh(
       new THREE.PlaneGeometry(w + 4, 3.5),
-      new THREE.MeshLambertMaterial({ color: 0x7a7060, flatShading: true }),
+      terraceMat,
     );
     terrace.rotation.x = -Math.PI / 2;
     terrace.position.set(x + 1, 0.04, z + frontZ * (d / 2 + 1.75));
@@ -784,9 +824,11 @@ export class Campus implements GameScene {
       // Base.
       this.group.add(makeBox(0.5, 0.15, 0.5, new THREE.Vector3(x + ox, 0.08, portZ), 0xc8b88c));
       // Shaft.
+      const charterShaftMat = new THREE.MeshLambertMaterial({ color: whiteTrim, flatShading: true });
+      applyPS1Jitter(charterShaftMat);
       const shaft = new THREE.Mesh(
         new THREE.CylinderGeometry(0.2, 0.22, columnH - 0.3, 12),
-        new THREE.MeshLambertMaterial({ color: whiteTrim, flatShading: true }),
+        charterShaftMat,
       );
       shaft.position.set(x + ox, 0.15 + (columnH - 0.3) / 2, portZ);
       this.group.add(shaft);
@@ -800,6 +842,7 @@ export class Campus implements GameScene {
     pedTri.setIndex([0, 1, 2]);
     pedTri.computeVertexNormals();
     const pedMat = new THREE.MeshLambertMaterial({ color: whiteTrim, flatShading: true, side: THREE.DoubleSide });
+    applyPS1Jitter(pedMat);
     const ped = new THREE.Mesh(pedTri, pedMat);
     ped.position.set(x, columnH + 0.3, portZ);
     this.group.add(ped);
@@ -818,7 +861,9 @@ export class Campus implements GameScene {
     this.addWindowPane(x, h + 0.95, z + frontZ * 2.95, 0.9, 0.8, frontZ, 0xffd488);
     // Central cupola/lantern on ridge.
     this.group.add(makeBox(1.4, 1.4, 1.4, new THREE.Vector3(x, h + 2.2, z), whiteTrim));
-    const cupTop = new THREE.Mesh(new THREE.ConeGeometry(0.9, 1.2, 8), new THREE.MeshLambertMaterial({ color: 0x3a2820, flatShading: true }));
+    const cupTopMat = new THREE.MeshLambertMaterial({ color: 0x3a2820, flatShading: true });
+    applyPS1Jitter(cupTopMat);
+    const cupTop = new THREE.Mesh(new THREE.ConeGeometry(0.9, 1.2, 8), cupTopMat);
     cupTop.position.set(x, h + 3.5, z);
     this.group.add(cupTop);
     // End-wall chimneys.
