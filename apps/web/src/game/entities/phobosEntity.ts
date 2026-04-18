@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { VoiceEngine, CreatureVoice, FearBucket } from '@phobos/voice';
 import type { EntityVisibility, FearSpike } from '@phobos/types';
 import { billboardToCamera, createFigureMesh, disposeFigure, setFigureOpacity } from './figureMesh';
-import { pickPrompt } from './promptLibrary';
+import { pickPrompt, type PromptSpec } from './promptLibrary';
 
 const OPACITY_BY_VISIBILITY: Record<EntityVisibility, number> = {
   hidden: 0,
@@ -82,14 +82,29 @@ export class PhobosEntity {
    * via speakAs() concurrently.
    */
   async reactToSpike(spike: FearSpike): Promise<void> {
+    return this.reactToSpikeWithPrompt(spike);
+  }
+
+  /**
+   * Same as reactToSpike but accepts an optional override PromptSpec. Scene
+   * stalkers use this to inject LLM-authored, scene-specific SFX prompts
+   * while preserving the template-bank fallback on the default path.
+   */
+  async reactToSpikeWithPrompt(spike: FearSpike, override?: PromptSpec): Promise<void> {
     if (this.reactInFlight) return;
     this.reactInFlight = true;
     try {
       const bucket = bucketForScore(spike.score);
       this.setFearBucket(bucket);
 
-      const { spec, templateIndex } = pickPrompt(bucket, this.lastTemplateIndex);
-      this.lastTemplateIndex = templateIndex;
+      let spec: PromptSpec;
+      if (override) {
+        spec = override;
+      } else {
+        const picked = pickPrompt(bucket, this.lastTemplateIndex);
+        this.lastTemplateIndex = picked.templateIndex;
+        spec = picked.spec;
+      }
 
       const p = this.group.position;
       const buffer = await this.voice.generateSFX({
