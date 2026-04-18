@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import type { AABB, GameScene, GazeTarget, Interactable, NoteId, SceneEvent, Trigger } from '@phobos/types';
 import { SCENE_CONFIGS } from '../sceneConfig';
 import { wallAABB, aabbFromCenter } from '../collision';
+import { getTexture, type TextureType } from '../textures';
+import { applyPS1Jitter } from '../ps1Material';
 
 /**
  * ATTIC — the climax tableau.
@@ -72,16 +74,36 @@ export class Attic implements GameScene {
     const hd = d / 2;
 
     // ── shell: rough wooden planks, starved colour ─────────────────────
-    this.group.add(this.makeWall(w, d, new THREE.Vector3(0, 0, 0), new THREE.Euler(-Math.PI / 2, 0, 0), 0x463424));
-    this.group.add(this.makeWall(w, d, new THREE.Vector3(0, h, 0), new THREE.Euler(Math.PI / 2, 0, 0), 0x241a10));
-    this.group.add(this.makeWall(w, h, new THREE.Vector3(0, h / 2, -hd), new THREE.Euler(0, 0, 0), 0x4e3a20));
-    this.group.add(this.makeWall(w, h, new THREE.Vector3(0, h / 2, hd), new THREE.Euler(0, Math.PI, 0), 0x4e3a20));
-    this.group.add(this.makeWall(d, h, new THREE.Vector3(-hw, h / 2, 0), new THREE.Euler(0, Math.PI / 2, 0), 0x44321c));
-    this.group.add(this.makeWall(d, h, new THREE.Vector3(hw, h / 2, 0), new THREE.Euler(0, -Math.PI / 2, 0), 0x44321c));
+    this.group.add(this.makeWall(w, d, new THREE.Vector3(0, 0, 0), new THREE.Euler(-Math.PI / 2, 0, 0), 'wood_floor'));
+    this.group.add(this.makeWall(w, d, new THREE.Vector3(0, h, 0), new THREE.Euler(Math.PI / 2, 0, 0), 'wood_panel'));
+    this.group.add(this.makeWall(w, h, new THREE.Vector3(0, h / 2, -hd), new THREE.Euler(0, 0, 0), 'wood_panel'));
+    this.group.add(this.makeWall(w, h, new THREE.Vector3(0, h / 2, hd), new THREE.Euler(0, Math.PI, 0), 'wood_panel'));
+    this.group.add(this.makeWall(d, h, new THREE.Vector3(-hw, h / 2, 0), new THREE.Euler(0, Math.PI / 2, 0), 'wood_panel'));
+    this.group.add(this.makeWall(d, h, new THREE.Vector3(hw, h / 2, 0), new THREE.Euler(0, -Math.PI / 2, 0), 'wood_panel'));
 
     // Visible floor-plank lines (thin dark strips spanning X every 1m)
+    //
+    // ── z-fighting fix (floor planks) ───────────────────────────────
+    // These thin strips sit on the floor plane. At Y = 0.01 they were
+    // only 1 cm above the floor (Y = 0), well within the depth
+    // buffer's margin of error. Raised to Y = 0.03 and given
+    // polygonOffset so the depth test consistently favours them over
+    // the floor surface underneath.
+    const plankMat = new THREE.MeshLambertMaterial({
+      color: 0x0a0604,
+      map: getTexture('wood_floor'),
+      flatShading: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    });
+    applyPS1Jitter(plankMat);
     for (let i = -2; i <= 2; i++) {
-      const plank = this.makeProp(w - 0.1, 0.005, 0.02, new THREE.Vector3(0, 0.01, i * 1.2), 0x0a0604);
+      const plank = new THREE.Mesh(
+        new THREE.BoxGeometry(w - 0.1, 0.005, 0.02),
+        plankMat,
+      );
+      plank.position.set(0, 0.03, i * 1.2);
       this.group.add(plank);
     }
 
@@ -94,11 +116,11 @@ export class Attic implements GameScene {
 
     // ── rafter beams across ceiling ───────────────────────────────────
     for (let i = -2; i <= 2; i++) {
-      this.group.add(this.makeProp(0.14, 0.14, d - 0.2, new THREE.Vector3(i * 2.1, h - 0.08, 0), 0x0e0906));
+      this.group.add(this.makeProp(0.14, 0.14, d - 0.2, new THREE.Vector3(i * 2.1, h - 0.08, 0), 'wood_dark'));
     }
     // a couple of cross-ties
-    this.group.add(this.makeProp(w - 0.2, 0.08, 0.08, new THREE.Vector3(0, h - 0.24, -1.0), 0x0e0906));
-    this.group.add(this.makeProp(w - 0.2, 0.08, 0.08, new THREE.Vector3(0, h - 0.24, 1.0), 0x0e0906));
+    this.group.add(this.makeProp(w - 0.2, 0.08, 0.08, new THREE.Vector3(0, h - 0.24, -1.0), 'wood_dark'));
+    this.group.add(this.makeProp(w - 0.2, 0.08, 0.08, new THREE.Vector3(0, h - 0.24, 1.0), 'wood_dark'));
 
     // ── hanging bulb on a chain (centre) ──────────────────────────────
     this.bulbChainGroup = new THREE.Group();
@@ -140,18 +162,49 @@ export class Attic implements GameScene {
     this.buildBoxStack(hw - 0.9, -hd + 0.9);
 
     // ── floor hatch (entry point, now sunken into floor for readability) ─
+    //
+    // ── z-fighting fix (hatch + frame) ──────────────────────────────
+    // The hatch plane and its four frame strips sat at Y = 0.012 and
+    // 0.015 respectively — both within 1.5 cm of the floor. Raised
+    // the hatch to Y = 0.035 and the frame to Y = 0.05 (each layer
+    // gets progressively higher). polygonOffset on both materials
+    // provides additional depth-test bias:
+    //  - hatch: factor -1 (pulls it in front of the floor)
+    //  - frame: factor -2 (pulls it in front of the hatch)
     const hatch = new THREE.Mesh(
       new THREE.PlaneGeometry(1.0, 1.0),
-      new THREE.MeshBasicMaterial({ color: 0x000000 }),
+      new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+      }),
     );
     hatch.rotation.x = -Math.PI / 2;
-    hatch.position.set(0, 0.012, 2.3);
+    hatch.position.set(0, 0.035, 2.3);
     this.group.add(hatch);
-    // hatch frame
-    this.group.add(this.makeProp(1.1, 0.02, 0.04, new THREE.Vector3(0, 0.015, 1.78), 0x0a0604));
-    this.group.add(this.makeProp(1.1, 0.02, 0.04, new THREE.Vector3(0, 0.015, 2.82), 0x0a0604));
-    this.group.add(this.makeProp(0.04, 0.02, 1.04, new THREE.Vector3(-0.53, 0.015, 2.3), 0x0a0604));
-    this.group.add(this.makeProp(0.04, 0.02, 1.04, new THREE.Vector3(0.53, 0.015, 2.3), 0x0a0604));
+    // hatch frame — stronger polygonOffset (-2) so frame renders on
+    // top of the hatch plane, and Y = 0.05 for geometric separation.
+    const hatchFrameMat = new THREE.MeshLambertMaterial({
+      color: 0x0a0604,
+      map: getTexture('metal'),
+      flatShading: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    applyPS1Jitter(hatchFrameMat);
+    const frameParts: [number, number, number, THREE.Vector3][] = [
+      [1.1, 0.02, 0.04, new THREE.Vector3(0, 0.05, 1.78)],
+      [1.1, 0.02, 0.04, new THREE.Vector3(0, 0.05, 2.82)],
+      [0.04, 0.02, 1.04, new THREE.Vector3(-0.53, 0.05, 2.3)],
+      [0.04, 0.02, 1.04, new THREE.Vector3(0.53, 0.05, 2.3)],
+    ];
+    for (const [fw, fh, fd, fp] of frameParts) {
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(fw, fh, fd), hatchFrameMat);
+      frame.position.copy(fp);
+      this.group.add(frame);
+    }
 
     // ── narrative notes ──
     const noteMat = new THREE.MeshLambertMaterial({ color: 0xe8dcc8, flatShading: true });
@@ -334,11 +387,11 @@ export class Attic implements GameScene {
     // body mass under sheet
     g.add(this.makeProp(0.45, height * 0.75, 0.45, new THREE.Vector3(0, height * 0.4, 0), 0x0a0806));
     // sheet drape, slightly wider
-    g.add(this.makeProp(0.62, height, 0.62, new THREE.Vector3(0, height / 2, 0), 0x302a22));
+    g.add(this.makeProp(0.62, height, 0.62, new THREE.Vector3(0, height / 2, 0), 'fabric'));
     // head bulge
-    g.add(this.makeProp(0.3, 0.22, 0.3, new THREE.Vector3(0, height - 0.1, 0), 0x342e24));
+    g.add(this.makeProp(0.3, 0.22, 0.3, new THREE.Vector3(0, height - 0.1, 0), 'fabric'));
     // sheet skirt (widens at base, sold with small extra box)
-    g.add(this.makeProp(0.72, 0.1, 0.72, new THREE.Vector3(0, 0.05, 0), 0x2a241c));
+    g.add(this.makeProp(0.72, 0.1, 0.72, new THREE.Vector3(0, 0.05, 0), 'fabric'));
   }
 
   private buildCentralShape(x: number, y: number, z: number): void {
@@ -430,13 +483,13 @@ export class Attic implements GameScene {
   private buildFramesStack(x: number, z: number): void {
     // Frames leaning against the wall, face-down. Dark wooden rectangles.
     const frames = [
-      { y: 0.3, w: 0.5, h: 0.55, color: 0x2a1a10 },
-      { y: 0.32, w: 0.45, h: 0.48, color: 0x1a1008 },
-      { y: 0.28, w: 0.55, h: 0.62, color: 0x3a2a14 },
+      { y: 0.3, w: 0.5, h: 0.55 },
+      { y: 0.32, w: 0.45, h: 0.48 },
+      { y: 0.28, w: 0.55, h: 0.62 },
     ];
     for (let i = 0; i < frames.length; i++) {
       const f = frames[i];
-      const frame = this.makeProp(0.04, f.h, f.w, new THREE.Vector3(x + i * 0.05, f.y, z + i * 0.15), f.color);
+      const frame = this.makeProp(0.04, f.h, f.w, new THREE.Vector3(x + i * 0.05, f.y, z + i * 0.15), 'wood_dark');
       frame.rotation.z = -0.15; // leaning back
       this.group.add(frame);
     }
@@ -454,27 +507,29 @@ export class Attic implements GameScene {
   }
 
   private buildBoxStack(x: number, z: number): void {
-    this.group.add(this.makeProp(0.7, 0.5, 0.55, new THREE.Vector3(x, 0.25, z), 0x3a2a1a));
-    this.group.add(this.makeProp(0.6, 0.4, 0.5, new THREE.Vector3(x + 0.05, 0.7, z + 0.05), 0x3a2a1a));
+    this.group.add(this.makeProp(0.7, 0.5, 0.55, new THREE.Vector3(x, 0.25, z), 'wood_dark'));
+    this.group.add(this.makeProp(0.6, 0.4, 0.5, new THREE.Vector3(x + 0.05, 0.7, z + 0.05), 'wood_dark'));
     // tape
     this.group.add(this.makeProp(0.62, 0.02, 0.08, new THREE.Vector3(x + 0.05, 0.91, z + 0.05), 0x8a7a54));
   }
 
-  private makeWall(w: number, h: number, p: THREE.Vector3, r: THREE.Euler, color: number): THREE.Mesh {
-    const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(w, h),
-      new THREE.MeshLambertMaterial({ color, flatShading: true, side: THREE.FrontSide }),
-    );
+  private makeWall(w: number, h: number, p: THREE.Vector3, r: THREE.Euler, appearance: number | TextureType): THREE.Mesh {
+    const mat = typeof appearance === 'string'
+      ? new THREE.MeshLambertMaterial({ map: getTexture(appearance), flatShading: true, side: THREE.FrontSide })
+      : new THREE.MeshLambertMaterial({ color: appearance, flatShading: true, side: THREE.FrontSide });
+    applyPS1Jitter(mat);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
     mesh.position.copy(p);
     mesh.rotation.copy(r);
     return mesh;
   }
 
-  private makeProp(w: number, h: number, d: number, p: THREE.Vector3, color: number): THREE.Mesh {
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(w, h, d),
-      new THREE.MeshLambertMaterial({ color, flatShading: true }),
-    );
+  private makeProp(w: number, h: number, d: number, p: THREE.Vector3, appearance: number | TextureType): THREE.Mesh {
+    const mat = typeof appearance === 'string'
+      ? new THREE.MeshLambertMaterial({ map: getTexture(appearance), flatShading: true })
+      : new THREE.MeshLambertMaterial({ color: appearance, flatShading: true });
+    applyPS1Jitter(mat);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
     mesh.position.copy(p);
     return mesh;
   }
