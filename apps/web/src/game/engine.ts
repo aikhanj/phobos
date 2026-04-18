@@ -4,6 +4,9 @@ import { EventBus } from './eventBus';
 import { GazeTracker } from './gaze';
 import { SCENE_CONFIGS } from './sceneConfig';
 import { rayAABB } from './collision';
+import { createCRTComposer, type CRTUniformsHandle } from './postProcessing';
+import { setJitterResolution } from './ps1Material';
+import type { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 
 const _playerXZ = new THREE.Vector2();
 const _forward = new THREE.Vector3();
@@ -26,6 +29,11 @@ export class Engine {
   /** Broad atmospheric fill so rooms aren't pitch-black where no point/ambient reaches. */
   private hemi: THREE.HemisphereLight;
 
+  /** CRT post-processing composer — replaces direct renderer.render(). */
+  private composer!: EffectComposer;
+  /** Exposed CRT uniforms for scare-director dynamic control. */
+  crtUniforms!: CRTUniformsHandle;
+
   /** Called whenever the targeted interactable changes. Hint is null when nothing is targeted. */
   onInteractableChange: ((hint: string | null) => void) | null = null;
 
@@ -39,9 +47,23 @@ export class Engine {
   onSceneLoaded: ((scene: GameScene) => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
+    // ── Logarithmic depth buffer ──────────────────────────────────────
+    // A standard depth buffer uses a 1/z mapping that packs most of its
+    // precision near the far plane and starves near-camera surfaces.
+    // With our near/far ratio of 0.1/100 and many floor-level decals
+    // sitting fractions of a centimetre above the floor, the default
+    // 24-bit buffer can't reliably tell them apart, causing z-fighting
+    // (frame-to-frame flickering between overlapping surfaces).
+    //
+    // `logarithmicDepthBuffer: true` switches to a log2(z) mapping that
+    // distributes precision far more evenly across the entire depth
+    // range. The per-fragment cost is a single log() in the shader —
+    // negligible at our half-res render target. This is the single
+    // biggest global fix for z-fighting artifacts.
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: false,
+      logarithmicDepthBuffer: true,
     });
     this.renderer.setPixelRatio(1);
     this.renderer.setSize(
@@ -81,6 +103,17 @@ export class Engine {
       isUnwatched: (id) => this.gaze.isUnwatched(id),
       onFire: (event) => this.onEventFired?.(event),
     });
+
+    // ── CRT post-processing ──────────────────────────────────────────
+    const { composer, uniforms } = createCRTComposer(this.renderer, this.scene, this.camera);
+    this.composer = composer;
+    this.crtUniforms = uniforms;
+
+    // Set the render resolution for the vertex jitter shader.
+    const w = Math.floor(window.innerWidth / 2);
+    const h = Math.floor(window.innerHeight / 2);
+    setJitterResolution(w, h);
+    this.crtUniforms.uResolution.value.set(w, h);
 
     window.addEventListener('resize', this.onResize);
   }
@@ -267,7 +300,9 @@ export class Engine {
       this.onAgentTick?.();
     }
 
-    this.renderer.render(this.scene, this.camera);
+    // Update CRT time uniform (drives film grain animation)
+    this.crtUniforms.uTime.value = performance.now() * 0.001;
+    this.composer.render();
   };
 
   private onResize = (): void => {
@@ -283,6 +318,13 @@ export class Engine {
     // Three.js from overwriting our `width: 100%; height: 100%` rule.
     this.renderer.domElement.style.width = '100%';
     this.renderer.domElement.style.height = '100%';
+
+    // Keep composer and jitter shader in sync with new resolution.
+    const rw = Math.floor(window.innerWidth / 2);
+    const rh = Math.floor(window.innerHeight / 2);
+    this.composer.setSize(rw, rh);
+    setJitterResolution(rw, rh);
+    this.crtUniforms.uResolution.value.set(rw, rh);
   };
 
   dispose(): void {
