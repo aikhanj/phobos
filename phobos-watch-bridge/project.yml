@@ -1,6 +1,6 @@
 name: PhobosWatchBridge
 options:
-  bundleIdPrefix: com.phobos
+  bundleIdPrefix: com.skylerchan.phobos
   deploymentTarget:
     iOS: "17.0"
     watchOS: "10.0"
@@ -37,7 +37,7 @@ targets:
           UIApplicationSupportsMultipleScenes: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.phobos.watchbridge
+        PRODUCT_BUNDLE_IDENTIFIER: com.skylerchan.phobos.watchbridge
         TARGETED_DEVICE_FAMILY: "1,2"
     dependencies:
       - target: PhobosWatchBridge Watch App
@@ -60,14 +60,14 @@ targets:
         CFBundleDisplayName: PHOBOS
         WKApplication: true
         WKWatchOnly: false
-        WKCompanionAppBundleIdentifier: com.phobos.watchbridge
+        WKCompanionAppBundleIdentifier: com.skylerchan.phobos.watchbridge
         WKBackgroundModes:
           - workout-processing
         NSHealthShareUsageDescription: "Phobos reads your heart rate to tune scares."
         NSHealthUpdateUsageDescription: "Phobos reads your heart rate to tune scares."
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.phobos.watchbridge.watchkitapp
+        PRODUCT_BUNDLE_IDENTIFIER: com.skylerchan.phobos.watchbridge.watchkitapp
         TARGETED_DEVICE_FAMILY: "4"
         CODE_SIGN_ENTITLEMENTS: "PhobosWatchBridge Watch App/PhobosWatchBridge.entitlements"
     frameworks:
