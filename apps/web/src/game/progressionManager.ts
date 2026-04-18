@@ -1,74 +1,51 @@
 import type { ClubId } from './scenes/clubs';
 
-/** Which club a key unlocks — found in the source club. */
+/**
+ * Linear chain through Prospect Avenue. Each club's pickup hands the player
+ * the next address in the chain. Side clubs (ivy/cottage/tigerinn/terrace/
+ * cloister) stay boarded up for the whole run — they're set dressing.
+ */
 const KEY_MAP: Record<string, ClubId> = {
-  tower: 'ivy',
+  tower: 'colonial',
   colonial: 'cannon',
-  terrace: 'capgown',
-  ivy: 'cottage',
-  cannon: 'tigerinn',
-  capgown: 'cloister',
-  // Cottage and Cloister each give one of the two Charter keys
+  cannon: 'capgown',
+  capgown: 'charter',
 };
 
-/** Tier 1 clubs are always open. */
-const TIER_1: ClubId[] = ['tower', 'colonial', 'terrace'];
+/** Ordered chain used by the objective HUD + idle nudges. */
+const CHAIN: ClubId[] = ['tower', 'colonial', 'cannon', 'capgown', 'charter'];
 
-/** Charter requires keys from BOTH of these clubs. */
-const CHARTER_REQUIRES: ClubId[] = ['cottage', 'cloister'];
+/** Only Tower is open at spawn. Every other target is boarded up. */
+const INITIAL_UNLOCKED: ClubId[] = ['tower'];
 
 /**
- * Tracks club unlock state and key inventory. Hub-and-spoke progression:
- *
- *   Tier 1 (open):  Tower, Colonial, Terrace
- *   Tier 2 (locked): Ivy, Cannon, Cap & Gown
- *   Tier 3 (locked): Cottage, Tiger Inn, Cloister
- *   Final (locked):  Charter (needs 2 keys)
+ * Tracks the single linear chain. No Y-branching, no combination keys —
+ * the storyline is one corridor and the side clubs stay boarded.
  */
 export class ProgressionManager {
-  private unlockedClubs = new Set<ClubId>(TIER_1);
-  private charterKeys = new Set<ClubId>();
+  private unlockedClubs = new Set<ClubId>(INITIAL_UNLOCKED);
   private _pickupsCollected = 0;
   private _flashbacksPlayed = new Set<number>();
 
-  /** Is this club currently accessible? */
   isUnlocked(id: ClubId): boolean {
     return this.unlockedClubs.has(id);
   }
 
-  /** How many pickups the player has collected (0-5). */
   get pickupsCollected(): number {
     return this._pickupsCollected;
   }
 
-  /** Has a specific flashback index already played? */
   hasPlayedFlashback(index: number): boolean {
     return this._flashbacksPlayed.has(index);
   }
 
-  /** Mark a flashback as played. */
   markFlashback(index: number): void {
     this._flashbacksPlayed.add(index);
   }
 
-  /**
-   * Player found a key in the given source club. Unlocks the target club.
-   * Returns the club that was unlocked (for UI feedback), or null if
-   * source club has no key mapping (e.g., Charter).
-   */
+  /** Player picked up the key in `sourceClubId`; unlock + return the next club. */
   collectKey(sourceClubId: ClubId): ClubId | null {
     this._pickupsCollected++;
-
-    // Cottage and Cloister contribute Charter keys
-    if (sourceClubId === 'cottage' || sourceClubId === 'cloister') {
-      this.charterKeys.add(sourceClubId);
-      if (this.charterKeys.size >= CHARTER_REQUIRES.length) {
-        this.unlockedClubs.add('charter');
-        return 'charter';
-      }
-      return null; // need the other key still
-    }
-
     const target = KEY_MAP[sourceClubId];
     if (target) {
       this.unlockedClubs.add(target);
@@ -77,7 +54,17 @@ export class ProgressionManager {
     return null;
   }
 
-  /** Get all currently locked clubs (for campus door visuals). */
+  /** The next un-visited club in the chain (for HUD / nudge), or null at end. */
+  getNextObjective(): ClubId | null {
+    for (const id of CHAIN) {
+      if (this.unlockedClubs.has(id) && !this._flashbacksPlayed.has(indexOf(id))) {
+        return id;
+      }
+    }
+    return null;
+  }
+
+  /** Every non-chain club, plus chain clubs that are still locked. */
   getLockedClubs(): ClubId[] {
     const all: ClubId[] = [
       'tower', 'cannon', 'ivy', 'cottage', 'capgown',
@@ -85,4 +72,8 @@ export class ProgressionManager {
     ];
     return all.filter((id) => !this.unlockedClubs.has(id));
   }
+}
+
+function indexOf(id: ClubId): number {
+  return CHAIN.indexOf(id);
 }

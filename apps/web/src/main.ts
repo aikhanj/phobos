@@ -34,6 +34,8 @@ import {
 import { FearAudioController } from './audio/fearAudioController';
 import { WebcamGhost, type GhostFlashOptions } from './horror/webcamGhost';
 import { RevealSequence } from './horror/revealSequence';
+import { IntroSequence } from './horror/introSequence';
+import { ObjectiveHud } from './ui/objectiveHud';
 import { EntityManager, PhobosEntity, ColonialStalker } from './game/entities';
 import { PhobosDirector } from './agents/phobosDirector';
 import { AudioDirector } from './agents/audioDirector';
@@ -55,6 +57,7 @@ async function main() {
   const audio = new AudioManager();
   const fade = new FadeOverlay();
   const devHud = new DevHud();
+  const objective = new ObjectiveHud();
 
   player.setColliderProvider(engine.getColliders);
 
@@ -321,23 +324,85 @@ async function main() {
   const savedCampusPos = new THREE.Vector3();
   const savedCampusQuat = new THREE.Quaternion();
 
+  // Current Campus reference — kept so exitToCampus can query the next
+  // objective's door position for spatialized nudge audio.
+  let currentCampus: Campus | null = null;
+
+  // Idle nudge timer: if the player stands on the street without entering
+  // the next chain club, Phobos speaks the target's name from its door's
+  // direction. Reset on every club entry / campus load.
+  let idleNudgeTimer: number | null = null;
+  const OBJECTIVE_LABEL: Record<ClubId, string> = {
+    tower: 'tower club',
+    colonial: 'colonial club',
+    cannon: 'cannon dial elm',
+    capgown: 'cap and gown',
+    charter: 'charter club',
+    ivy: '', cottage: '', tigerinn: '', terrace: '', cloister: '',
+  };
+
+  const clearIdleNudge = (): void => {
+    if (idleNudgeTimer !== null) {
+      clearTimeout(idleNudgeTimer);
+      idleNudgeTimer = null;
+    }
+  };
+
+  const scheduleIdleNudge = (delayMs: number): void => {
+    clearIdleNudge();
+    idleNudgeTimer = window.setTimeout(() => {
+      const next = progression.getNextObjective();
+      if (!next || !currentCampus) return;
+      const label = OBJECTIVE_LABEL[next];
+      if (!label) return;
+      const doorPos = currentCampus.getClubDoorPosition(next);
+      if (voice && defaultVoiceId) {
+        const pos = doorPos ? { x: doorPos.x, y: doorPos.y, z: doorPos.z } : undefined;
+        try {
+          voice.speak({ text: label, voiceId: defaultVoiceId, gain: 0.55, position: pos });
+        } catch { /* non-fatal */ }
+      }
+      log('phobos', `4722: ${label}. waiting.`);
+      // Reschedule with a slightly longer interval — don't nag.
+      scheduleIdleNudge(delayMs + 15000);
+    }, delayMs);
+  };
+
+  const updateObjective = (): void => {
+    const next = progression.getNextObjective();
+    if (!next) {
+      objective.clear();
+      clearIdleNudge();
+      return;
+    }
+    const label = OBJECTIVE_LABEL[next];
+    if (label) objective.set(label);
+  };
+
   const loadCampus = (restorePosition = false): void => {
     const campus = new Campus({
       onEnterClub: (id) => { void enterClub(id); },
       lockedClubs: progression.getLockedClubs(),
+      nextObjective: progression.getNextObjective(),
     });
     engine.loadScene(campus);
+    currentCampus = campus;
     if (restorePosition) {
       engine.camera.position.copy(savedCampusPos);
       engine.camera.quaternion.copy(savedCampusQuat);
     } else {
       engine.camera.position.copy(campus.spawnPoint);
+      // Face east down the avenue (+X). Spawn sits at the west end — without
+      // this the player looks at the arena wall and can't see the clubs.
+      engine.camera.rotation.set(0, -Math.PI / 2, 0);
     }
     audio.setScene('campus');
     devHud.setStatus('SCENE · prospect ave · walk up to any club door');
     if (!restorePosition) devHud.flash('>> PROSPECT AVE — WALK TO A DOOR <<', 3000);
     log('system', 'prospect ave. the clubs are still standing.');
     entityManager?.resetGazeState();
+    updateObjective();
+    scheduleIdleNudge(30000);
     runCampusBeats();
   };
 
@@ -369,6 +434,7 @@ async function main() {
       log('system', `key found. ${CLUB_LABEL[unlocked]} unlocked.`);
       devHud.flash(`>> ${CLUB_LABEL[unlocked].toUpperCase()} UNLOCKED <<`, 3000);
     }
+    updateObjective();
 
     // Show the pickup note content
     const noteMap: Partial<Record<ClubId, NoteId>> = {
@@ -415,6 +481,8 @@ async function main() {
       log('system', `${CLUB_LABEL[id]} is locked.`);
       return;
     }
+    clearIdleNudge();
+    objective.set('find the exit');
     player.setInputEnabled(false);
     // Save the player's street position + facing so we can restore on exit.
     // Offset 1.5m backward along facing so we don't land inside the door's
@@ -465,6 +533,26 @@ async function main() {
     await new Promise((r) => setTimeout(r, 150));
     await fade.fadeFromBlack(700);
     player.setInputEnabled(true);
+
+    // Phobos calls the next chain target from the direction of that club's
+    // door — a diegetic nudge that forces the chain without a compass arrow.
+    const next = progression.getNextObjective();
+    if (next && voice && defaultVoiceId && currentCampus) {
+      const label = OBJECTIVE_LABEL[next];
+      const doorPos = currentCampus.getClubDoorPosition(next);
+      if (label) {
+        setTimeout(() => {
+          try {
+            voice!.speak({
+              text: label,
+              voiceId: defaultVoiceId,
+              gain: 0.7,
+              position: doorPos ? { x: doorPos.x, y: doorPos.y, z: doorPos.z } : undefined,
+            });
+          } catch { /* non-fatal */ }
+        }, 1200);
+      }
+    }
   };
 
   // ── CAMPUS HORROR BEATS ──────────────────────────────────────────────
@@ -682,6 +770,8 @@ async function main() {
     revealRunning = true;
     log('system', 'end.');
     player.setInputEnabled(false);
+    objective.clear();
+    clearIdleNudge();
 
     const reveal = new RevealSequence({
       cornerBox,
@@ -898,11 +988,17 @@ async function main() {
       engine.onAgentTick = () => { runAudioDirectorTick(); };
     }
 
-    // Load the campus — Prospect Ave — as the opening scene. Walk up to any
-    // of the 10 eating-club doors to enter that club's interior.
+    // Hold black, load the campus under the overlay, then run the opening
+    // cinematic. IntroSequence itself fades from black when it finishes, so
+    // the world is revealed at the intended beat — player already facing east
+    // down the avenue with Tower lit up and the objective HUD populated.
+    fade.holdBlack();
     loadCampus();
     // Dev escape hatch into the existing horror arc.
     (window as unknown as { __loadBasement: () => void }).__loadBasement = loadBasement;
+
+    const intro = new IntroSequence({ cornerBox, fade, voice, defaultVoiceId });
+    void intro.run();
   });
 
   // Dev keys:
