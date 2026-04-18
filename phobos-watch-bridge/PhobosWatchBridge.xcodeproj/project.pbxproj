@@ -1,0 +1,427 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		5B16EACBEC912939141357E9 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB5B34625A4C9692B9643524 /* ContentView.swift */; };
+		734E268E63926BFC3A077EF5 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B83A342D99CF649EF56F9A5C /* ContentView.swift */; };
+		755995F689B5F4E23B3AE985 /* WatchSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 838F2A325DBA710CA3CCCEDD /* WatchSessionManager.swift */; };
+		7682745DA905C755FA398F57 /* PhobosWatchBridgeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F034CC3F1D4D14026BAF24E /* PhobosWatchBridgeApp.swift */; };
+		CB464019A929BBC8A9D75B1D /* WatchSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF20DF870526D870F1151DF0 /* WatchSessionManager.swift */; };
+		CD0A97B114F7939720B69203 /* BluetoothPeripheralManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70E6302F93A9290E7900240A /* BluetoothPeripheralManager.swift */; };
+		D5F2816FD5F5632614AAEF92 /* WorkoutManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CFBA1738A86B77BE86683B7 /* WorkoutManager.swift */; };
+		F7FC6DBB154D28A810ED779B /* PhobosWatchBridge Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = F88BD4F20039AE8B8849E90A /* PhobosWatchBridge Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		FCF1004E56588544A261EC21 /* PhobosWatchBridgeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8319E5BA48F26791671CE0B /* PhobosWatchBridgeApp.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		8B202707CB832D1D1F1AD29D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1F50BB5EA6CAC19DE693E615 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 782BFA1A452EA70DF2659BA8;
+			remoteInfo = "PhobosWatchBridge Watch App";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		938A937E3D3D4ABA62019DEE /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				F7FC6DBB154D28A810ED779B /* PhobosWatchBridge Watch App.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		1CFBA1738A86B77BE86683B7 /* WorkoutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutManager.swift; sourceTree = "<group>"; };
+		5F034CC3F1D4D14026BAF24E /* PhobosWatchBridgeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhobosWatchBridgeApp.swift; sourceTree = "<group>"; };
+		70E6302F93A9290E7900240A /* BluetoothPeripheralManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothPeripheralManager.swift; sourceTree = "<group>"; };
+		838F2A325DBA710CA3CCCEDD /* WatchSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSessionManager.swift; sourceTree = "<group>"; };
+		B83A342D99CF649EF56F9A5C /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		DCE21767AD1CE39E33B2892F /* PhobosWatchBridge.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = PhobosWatchBridge.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DF20DF870526D870F1151DF0 /* WatchSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSessionManager.swift; sourceTree = "<group>"; };
+		E8319E5BA48F26791671CE0B /* PhobosWatchBridgeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhobosWatchBridgeApp.swift; sourceTree = "<group>"; };
+		F88BD4F20039AE8B8849E90A /* PhobosWatchBridge Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "PhobosWatchBridge Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		FB5B34625A4C9692B9643524 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		FCEAF8E89F9AF17858D9716F /* PhobosWatchBridge.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PhobosWatchBridge.entitlements; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		00AA071678C7E3A26D6DA3DF /* PhobosWatchBridge */ = {
+			isa = PBXGroup;
+			children = (
+				70E6302F93A9290E7900240A /* BluetoothPeripheralManager.swift */,
+				FB5B34625A4C9692B9643524 /* ContentView.swift */,
+				E8319E5BA48F26791671CE0B /* PhobosWatchBridgeApp.swift */,
+				DF20DF870526D870F1151DF0 /* WatchSessionManager.swift */,
+			);
+			path = PhobosWatchBridge;
+			sourceTree = "<group>";
+		};
+		43BEA6AD117A2589CC8CCA49 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				F88BD4F20039AE8B8849E90A /* PhobosWatchBridge Watch App.app */,
+				DCE21767AD1CE39E33B2892F /* PhobosWatchBridge.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		4F15302DB699EFD79B361F5F /* PhobosWatchBridge Watch App */ = {
+			isa = PBXGroup;
+			children = (
+				B83A342D99CF649EF56F9A5C /* ContentView.swift */,
+				FCEAF8E89F9AF17858D9716F /* PhobosWatchBridge.entitlements */,
+				5F034CC3F1D4D14026BAF24E /* PhobosWatchBridgeApp.swift */,
+				838F2A325DBA710CA3CCCEDD /* WatchSessionManager.swift */,
+				1CFBA1738A86B77BE86683B7 /* WorkoutManager.swift */,
+			);
+			path = "PhobosWatchBridge Watch App";
+			sourceTree = "<group>";
+		};
+		F748F59C0246CA87F6AE74E7 = {
+			isa = PBXGroup;
+			children = (
+				00AA071678C7E3A26D6DA3DF /* PhobosWatchBridge */,
+				4F15302DB699EFD79B361F5F /* PhobosWatchBridge Watch App */,
+				43BEA6AD117A2589CC8CCA49 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		782BFA1A452EA70DF2659BA8 /* PhobosWatchBridge Watch App */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 46B18355F2A07365D1DEE552 /* Build configuration list for PBXNativeTarget "PhobosWatchBridge Watch App" */;
+			buildPhases = (
+				FEA36E0A68FD9951F7F4697D /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "PhobosWatchBridge Watch App";
+			packageProductDependencies = (
+			);
+			productName = "PhobosWatchBridge Watch App";
+			productReference = F88BD4F20039AE8B8849E90A /* PhobosWatchBridge Watch App.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C330EB5F801E0BA72BCEF13C /* PhobosWatchBridge */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5D59E324ADCB7B52A51BDBF5 /* Build configuration list for PBXNativeTarget "PhobosWatchBridge" */;
+			buildPhases = (
+				E29E6EAAA9CA99BFCE12AFBF /* Sources */,
+				938A937E3D3D4ABA62019DEE /* Embed Watch Content */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				0520EF8FEF0A2C75F7545397 /* PBXTargetDependency */,
+			);
+			name = PhobosWatchBridge;
+			packageProductDependencies = (
+			);
+			productName = PhobosWatchBridge;
+			productReference = DCE21767AD1CE39E33B2892F /* PhobosWatchBridge.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		1F50BB5EA6CAC19DE693E615 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					782BFA1A452EA70DF2659BA8 = {
+						ProvisioningStyle = Automatic;
+					};
+					C330EB5F801E0BA72BCEF13C = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 29D5170FF6452A495CED2EC9 /* Build configuration list for PBXProject "PhobosWatchBridge" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = F748F59C0246CA87F6AE74E7;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 43BEA6AD117A2589CC8CCA49 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C330EB5F801E0BA72BCEF13C /* PhobosWatchBridge */,
+				782BFA1A452EA70DF2659BA8 /* PhobosWatchBridge Watch App */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		E29E6EAAA9CA99BFCE12AFBF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CD0A97B114F7939720B69203 /* BluetoothPeripheralManager.swift in Sources */,
+				5B16EACBEC912939141357E9 /* ContentView.swift in Sources */,
+				FCF1004E56588544A261EC21 /* PhobosWatchBridgeApp.swift in Sources */,
+				CB464019A929BBC8A9D75B1D /* WatchSessionManager.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FEA36E0A68FD9951F7F4697D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				734E268E63926BFC3A077EF5 /* ContentView.swift in Sources */,
+				7682745DA905C755FA398F57 /* PhobosWatchBridgeApp.swift in Sources */,
+				755995F689B5F4E23B3AE985 /* WatchSessionManager.swift in Sources */,
+				D5F2816FD5F5632614AAEF92 /* WorkoutManager.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		0520EF8FEF0A2C75F7545397 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 782BFA1A452EA70DF2659BA8 /* PhobosWatchBridge Watch App */;
+			targetProxy = 8B202707CB832D1D1F1AD29D /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		2F16F9DA01A15F271FE9A68B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		3E04E8F932413B6EF1BD9B3D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = PhobosWatchBridge/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.phobos.watchbridge;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		5ED12E5DA80D4FFD7D3554E4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "PhobosWatchBridge Watch App/PhobosWatchBridge.entitlements";
+				INFOPLIST_FILE = "PhobosWatchBridge Watch App/Info.plist";
+				PRODUCT_BUNDLE_IDENTIFIER = com.phobos.watchbridge.watchkitapp;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Release;
+		};
+		8408B332ACED2C7121B24A5F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
+		C989DD7F61FB43769ADC4C04 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = PhobosWatchBridge/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.phobos.watchbridge;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		F3DC2797256B9533B24C2FAC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "PhobosWatchBridge Watch App/PhobosWatchBridge.entitlements";
+				INFOPLIST_FILE = "PhobosWatchBridge Watch App/Info.plist";
+				PRODUCT_BUNDLE_IDENTIFIER = com.phobos.watchbridge.watchkitapp;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		29D5170FF6452A495CED2EC9 /* Build configuration list for PBXProject "PhobosWatchBridge" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2F16F9DA01A15F271FE9A68B /* Debug */,
+				8408B332ACED2C7121B24A5F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		46B18355F2A07365D1DEE552 /* Build configuration list for PBXNativeTarget "PhobosWatchBridge Watch App" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F3DC2797256B9533B24C2FAC /* Debug */,
+				5ED12E5DA80D4FFD7D3554E4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		5D59E324ADCB7B52A51BDBF5 /* Build configuration list for PBXNativeTarget "PhobosWatchBridge" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C989DD7F61FB43769ADC4C04 /* Debug */,
+				3E04E8F932413B6EF1BD9B3D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 1F50BB5EA6CAC19DE693E615 /* Project object */;
+}

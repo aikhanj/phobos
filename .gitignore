@@ -5,3 +5,10 @@ dist/
 .env.local
 *.log
 .DS_Store
+
+# Xcode
+phobos-watch-bridge/_reference/
+phobos-watch-bridge/build/
+phobos-watch-bridge/DerivedData/
+**/xcuserdata/
+**/*.xcuserstate

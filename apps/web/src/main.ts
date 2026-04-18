@@ -21,7 +21,10 @@ import {
 } from '@phobos/voice';
 import { WebcamGhost } from './horror/webcamGhost';
 import { EntityManager, PhobosEntity } from './game/entities';
-import type { AgentLogEntry, BiosignalState } from '@phobos/types';
+import type { AgentLogEntry } from '@phobos/types';
+import { FaceEmotionDetector } from './biosignals/faceEmotion';
+import { FearScoreCalculator } from './biosignals/fearScore';
+import { BluetoothHrClient } from './biosignals/bluetoothHr';
 
 async function main() {
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -44,10 +47,18 @@ async function main() {
   const voiceProxyUrl = (import.meta.env.VITE_VOICE_PROXY_URL as string) || 'http://localhost:3001';
   const defaultVoiceId = import.meta.env.VITE_ELEVEN_DEMO_VOICE_ID as string | undefined;
 
+  // Biosignals: face-api for emotion, Web Bluetooth for heart rate.
+  const faceEmotion = new FaceEmotionDetector();
+  const fearScore = new FearScoreCalculator();
+  const hrClient = new BluetoothHrClient();
+  let baselineBpm = 0;
+  let sceneTime = 0;
+
   // Per-frame: drive player, update voice listener to camera pose, tick entities.
   const _fwd = new THREE.Vector3();
   engine.onUpdate = (dt) => {
     player.update(dt);
+    sceneTime += dt;
     if (voice) {
       const p = engine.camera.position;
       engine.camera.getWorldDirection(_fwd);
@@ -60,23 +71,29 @@ async function main() {
     entityManager?.update(dt);
   };
 
-  // Biosignal tick (every 500ms). For now we feed a zero state since
-  // MediaPipe isn't wired in Phase 2 yet — this still drives the flat-period
-  // filler clock and is ready for real fear scores to flow through.
+  // Biosignal tick (every 500ms): run face-api inference, fuse with HR, push
+  // fear state to the entity manager + corner box HUD.
   engine.onBiosignalTick = () => {
-    if (!entityManager) return;
-    const state: BiosignalState = {
-      fearScore: 0,
-      bpm: 0,
-      gazeAversion: 0,
-      flinchCount: 0,
-      timeInScene: 0,
-      lookStillness: 0,
-      retreatVelocity: 0,
-      gazeDwellMs: {},
-      timestamp: Date.now(),
-    };
-    entityManager.onBiosignal(state);
+    faceEmotion.tick();
+
+    // Establish baseline HR on first live sample, then slow EMA.
+    const bpm = hrClient.isLive ? hrClient.bpm : 0;
+    if (bpm > 0) {
+      if (baselineBpm === 0) baselineBpm = bpm;
+      else baselineBpm = baselineBpm * 0.985 + bpm * 0.015;
+    }
+
+    const state = fearScore.calculate({
+      face: faceEmotion.snapshot,
+      bpm,
+      baselineBpm,
+      timeInScene: sceneTime,
+    });
+
+    cornerBox.updateFearScore(state.fearScore);
+    cornerBox.updateBPM(state.bpm);
+
+    entityManager?.onBiosignal(state);
   };
 
   // Crosshair lights up when targeting an interactable; E triggers it.
@@ -387,9 +404,58 @@ async function main() {
   const titleScreen = new TitleScreen();
   await titleScreen.show();
 
+  // HR pairing from the title screen — Web Bluetooth needs a user gesture.
+  titleScreen.onHrConnect(async () => {
+    hrClient.onBpm = (bpm) => cornerBox.updateBPM(bpm);
+    hrClient.onStatus = (status, detail) => {
+      cornerBox.appendLog({
+        source: 'system',
+        message: `hr ${status}${detail ? `: ${detail}` : ''}`,
+        timestamp: Date.now(),
+      });
+      if (status === 'connected') titleScreen.setHrConnected(true, detail);
+      else if (status === 'disconnected' || status === 'error') titleScreen.setHrConnected(false);
+    };
+    await hrClient.connect();
+  });
+
   titleScreen.onStart(async () => {
     const stream = titleScreen.getStream();
-    if (stream) cornerBox.attachStream(stream);
+    if (stream) {
+      cornerBox.attachStream(stream);
+
+      // Face-api runs on the visible corner-box video. Wait for first frame
+      // before initializing models — face-api refuses zero-dimension inputs.
+      const video = cornerBox.getVideoElement();
+      faceEmotion.onDiagnostic = (msg) => {
+        cornerBox.appendLog({ source: 'system', message: msg, timestamp: Date.now() });
+      };
+      const waitForFrames = new Promise<void>((resolve) => {
+        if (video.readyState >= 2 && video.videoWidth > 0) return resolve();
+        const onReady = () => {
+          video.removeEventListener('loadeddata', onReady);
+          resolve();
+        };
+        video.addEventListener('loadeddata', onReady);
+      });
+      waitForFrames
+        .then(() => faceEmotion.init(video))
+        .then(
+          () => cornerBox.appendLog({
+            source: 'system',
+            message: `face-api ready (${video.videoWidth}x${video.videoHeight})`,
+            timestamp: Date.now(),
+          }),
+          (err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            cornerBox.appendLog({
+              source: 'system',
+              message: `face-api failed: ${msg}`,
+              timestamp: Date.now(),
+            });
+          },
+        );
+    }
 
     await audio.init();
 

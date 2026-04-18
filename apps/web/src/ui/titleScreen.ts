@@ -3,6 +3,9 @@ export class TitleScreen {
   private videoElement: HTMLVideoElement;
   private stream: MediaStream | null = null;
   private startCallback: (() => void) | null = null;
+  private hrButton: HTMLButtonElement;
+  private hrConnectCallback: (() => Promise<void>) | null = null;
+  private hrConnected = false;
 
   constructor() {
     this.container = document.createElement('div');
@@ -67,12 +70,40 @@ export class TitleScreen {
       userSelect: 'none',
     });
 
+    // Connect HR Monitor button — Web Bluetooth requires a user gesture, so
+    // pairing happens from the title screen before the game starts.
+    this.hrButton = document.createElement('button');
+    this.hrButton.textContent = 'connect heart rate monitor';
+    Object.assign(this.hrButton.style, {
+      marginTop: '1.2rem',
+      padding: '0.6rem 1.2rem',
+      background: 'transparent',
+      border: '1px solid #333',
+      color: '#777',
+      fontFamily: "'Courier New', monospace",
+      fontSize: '0.7rem',
+      letterSpacing: '0.2rem',
+      textTransform: 'uppercase',
+      cursor: 'pointer',
+      userSelect: 'none',
+    });
+    this.hrButton.addEventListener('mouseenter', () => {
+      this.hrButton.style.color = '#bbb';
+      this.hrButton.style.borderColor = '#555';
+    });
+    this.hrButton.addEventListener('mouseleave', () => {
+      this.hrButton.style.color = this.hrConnected ? '#5a9' : '#777';
+      this.hrButton.style.borderColor = this.hrConnected ? '#5a9' : '#333';
+    });
+    this.hrButton.addEventListener('click', this.onHrClick);
+
     textWrap.appendChild(title);
     textWrap.appendChild(subtitle);
+    textWrap.appendChild(this.hrButton);
     this.container.appendChild(this.videoElement);
     this.container.appendChild(textWrap);
 
-    // Click handler
+    // Click on container starts the game — but not when the HR button was clicked.
     this.container.addEventListener('click', this.onClick);
   }
 
@@ -103,16 +134,52 @@ export class TitleScreen {
     this.startCallback = callback;
   }
 
+  onHrConnect(callback: () => Promise<void>): void {
+    this.hrConnectCallback = callback;
+  }
+
+  setHrConnected(connected: boolean, label?: string): void {
+    this.hrConnected = connected;
+    if (connected) {
+      this.hrButton.textContent = label ? `hr: ${label}` : 'hr connected';
+      this.hrButton.style.color = '#5a9';
+      this.hrButton.style.borderColor = '#5a9';
+    } else {
+      this.hrButton.textContent = 'connect heart rate monitor';
+      this.hrButton.style.color = '#777';
+      this.hrButton.style.borderColor = '#333';
+    }
+  }
+
   dispose(): void {
     this.container.removeEventListener('click', this.onClick);
+    this.hrButton.removeEventListener('click', this.onHrClick);
     if (this.container.parentElement) {
       this.container.parentElement.removeChild(this.container);
     }
   }
 
-  private onClick = (): void => {
+  private onClick = (evt: MouseEvent): void => {
+    // Don't start the game if the user clicked the HR button
+    if (evt.target === this.hrButton || this.hrButton.contains(evt.target as Node)) {
+      return;
+    }
     if (this.startCallback) {
       this.startCallback();
+    }
+  };
+
+  private onHrClick = async (evt: MouseEvent): Promise<void> => {
+    evt.stopPropagation();
+    if (!this.hrConnectCallback) return;
+    this.hrButton.textContent = 'pairing...';
+    this.hrButton.disabled = true;
+    try {
+      await this.hrConnectCallback();
+    } catch {
+      this.setHrConnected(false);
+    } finally {
+      this.hrButton.disabled = false;
     }
   };
 }
