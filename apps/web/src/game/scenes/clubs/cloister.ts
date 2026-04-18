@@ -4,7 +4,8 @@ import { SCENE_CONFIGS } from '../../sceneConfig';
 import { aabbFromCenter } from '../../collision';
 import {
   buildShell, makeBox, makeEmissive, makeFireplace, makeDiningTable, makeSconce,
-  makeRug, makeExitDoor, makeFramedPicture,
+  makeArmchair, makeBookshelf, makeRug, makeExitDoor, makeFramedPicture,
+  addAbandonment,
 } from './_shared';
 
 /**
@@ -12,11 +13,13 @@ import {
  * or exposed timber truss ceiling, stone Tudor-arched fireplace with carved
  * overmantel, stained-glass heraldic shields. Carved stone corbels. The
  * quietest, most "medieval church" atmosphere of the Gothic clubs.
+ *
+ * Dimensions: 22w × 18d × 6h (doubled from 12×9×4.8).
  */
 export class CloisterInterior implements GameScene {
   readonly name = 'cloister';
   readonly group = new THREE.Group();
-  readonly spawnPoint = new THREE.Vector3(0, 1.6, 3.4);
+  readonly spawnPoint = new THREE.Vector3(0, 1.6, 5.0);
 
   private time = 0;
   private bounds: AABB[] = [];
@@ -32,7 +35,7 @@ export class CloisterInterior implements GameScene {
     const hw = w / 2, hd = d / 2;
 
     // Stone interior — cooler, more monastic.
-    this.bounds = buildShell(this.group, w, h, d, { floor: 0x3a3238, ceiling: 0x241e24, walls: 0x606068 });
+    this.bounds = buildShell(this.group, w, h, d, { floor: 'wood_floor', ceiling: 'plaster', walls: 'wallpaper' });
     this.group.add(new THREE.AmbientLight(cfg.ambientColor, cfg.ambientIntensity));
 
     // Stone floor pattern (darker grout lines in a grid).
@@ -43,9 +46,9 @@ export class CloisterInterior implements GameScene {
       this.group.add(makeBox(w - 0.1, 0.005, 0.04, new THREE.Vector3(0, 0.015, bz), 0x1a1218));
     }
 
-    // Hammerbeam trusses — 4 trusses with projecting hammer beams + queens.
-    const trussColor = 0x1a0e06;
-    for (const tx of [-4, -1.3, 1.3, 4]) {
+    // Hammerbeam trusses — 6 trusses spread across 22w room.
+    const trussColor = 'wood_dark' as const;
+    for (const tx of [-8.5, -5.0, -1.5, 2.0, 5.5, 9.0]) {
       this.group.add(makeBox(0.3, 0.32, d - 0.2, new THREE.Vector3(tx, h - 0.16, 0), trussColor));
       // Stone corbels projecting from wall at hammer-beam height.
       this.group.add(makeBox(0.4, 0.35, 0.4, new THREE.Vector3(tx, h - 1.0, -hd + 0.2), 0x7a7078));
@@ -64,73 +67,93 @@ export class CloisterInterior implements GameScene {
     const fp = makeFireplace(this.group, 0, -hd + 0.6, 1, 0x586068, true);
     this.fireGlow = fp.glow;
     // Carved overmantel — tall stone panel with heraldic carving.
-    this.group.add(makeBox(2.8, 1.8, 0.2, new THREE.Vector3(0, 3.2, -hd + 0.25), 0x6a6a70));
+    this.group.add(makeBox(3.2, 2.0, 0.22, new THREE.Vector3(0, 3.6, -hd + 0.28), 0x6a6a70));
     // Central shield.
-    this.group.add(makeBox(0.6, 0.8, 0.08, new THREE.Vector3(0, 3.2, -hd + 0.12), 0x2a1a0e));
-    this.group.add(makeBox(0.4, 0.55, 0.03, new THREE.Vector3(0, 3.25, -hd + 0.08), 0xa08830));
+    this.group.add(makeBox(0.7, 0.9, 0.08, new THREE.Vector3(0, 3.6, -hd + 0.14), 0x2a1a0e));
+    this.group.add(makeBox(0.5, 0.65, 0.03, new THREE.Vector3(0, 3.65, -hd + 0.1), 0xa08830));
     // Stone tracery strips flanking the shield.
-    this.group.add(makeBox(0.15, 1.4, 0.08, new THREE.Vector3(-1.0, 3.2, -hd + 0.12), 0x78787e));
-    this.group.add(makeBox(0.15, 1.4, 0.08, new THREE.Vector3(1.0, 3.2, -hd + 0.12), 0x78787e));
+    this.group.add(makeBox(0.15, 1.6, 0.08, new THREE.Vector3(-1.2, 3.6, -hd + 0.14), 0x78787e));
+    this.group.add(makeBox(0.15, 1.6, 0.08, new THREE.Vector3(1.2, 3.6, -hd + 0.14), 0x78787e));
 
-    // Gothic-traceried windows on side walls with stained-glass shields.
-    for (const wz of [-3, -0.5, 2.0, 3.5]) {
-      // Tall pointed-arch pane.
-      this.group.add(makeEmissive(1.1, 2.2, 0.05, new THREE.Vector3(hw - 0.04, 2.6, wz), 0x1a2a3a));
-      // Cross-bar muntins.
-      this.group.add(makeBox(1.15, 0.05, 0.08, new THREE.Vector3(hw - 0.06, 2.1, wz), 0x1a0e06));
-      this.group.add(makeBox(1.15, 0.05, 0.08, new THREE.Vector3(hw - 0.06, 3.1, wz), 0x1a0e06));
-      this.group.add(makeBox(0.05, 2.2, 0.08, new THREE.Vector3(hw - 0.06, 2.6, wz), 0x1a0e06));
-      // Stained-glass shield insert at centre.
-      this.group.add(makeEmissive(0.4, 0.5, 0.05, new THREE.Vector3(hw - 0.06, 2.6, wz), 0xbf1818));
+    // Gothic-traceried windows on side walls — 6 per side for 18d depth.
+    for (const wz of [-6.5, -3.5, -0.5, 2.5, 5.0, 7.5]) {
+      // East wall.
+      this.group.add(makeEmissive(1.1, 2.4, 0.05, new THREE.Vector3(hw - 0.04, 2.8, wz), 0x1a2a3a));
+      this.group.add(makeBox(1.15, 0.05, 0.08, new THREE.Vector3(hw - 0.06, 2.2, wz), 0x1a0e06));
+      this.group.add(makeBox(1.15, 0.05, 0.08, new THREE.Vector3(hw - 0.06, 3.4, wz), 0x1a0e06));
+      this.group.add(makeBox(0.05, 2.4, 0.08, new THREE.Vector3(hw - 0.06, 2.8, wz), 0x1a0e06));
+      // Stained-glass shield insert.
+      this.group.add(makeEmissive(0.4, 0.5, 0.05, new THREE.Vector3(hw - 0.06, 2.8, wz), 0xbf1818));
     }
-    for (const wz of [-3, -0.5, 2.0, 3.5]) {
-      this.group.add(makeEmissive(1.1, 2.2, 0.05, new THREE.Vector3(-hw + 0.04, 2.6, wz), 0x1a2a3a));
-      this.group.add(makeBox(1.15, 0.05, 0.08, new THREE.Vector3(-hw + 0.06, 2.1, wz), 0x1a0e06));
-      this.group.add(makeBox(1.15, 0.05, 0.08, new THREE.Vector3(-hw + 0.06, 3.1, wz), 0x1a0e06));
-      this.group.add(makeBox(0.05, 2.2, 0.08, new THREE.Vector3(-hw + 0.06, 2.6, wz), 0x1a0e06));
-      this.group.add(makeEmissive(0.4, 0.5, 0.05, new THREE.Vector3(-hw + 0.06, 2.6, wz), 0x1830bf));
+    for (const wz of [-6.5, -3.5, -0.5, 2.5, 5.0, 7.5]) {
+      // West wall.
+      this.group.add(makeEmissive(1.1, 2.4, 0.05, new THREE.Vector3(-hw + 0.04, 2.8, wz), 0x1a2a3a));
+      this.group.add(makeBox(1.15, 0.05, 0.08, new THREE.Vector3(-hw + 0.06, 2.2, wz), 0x1a0e06));
+      this.group.add(makeBox(1.15, 0.05, 0.08, new THREE.Vector3(-hw + 0.06, 3.4, wz), 0x1a0e06));
+      this.group.add(makeBox(0.05, 2.4, 0.08, new THREE.Vector3(-hw + 0.06, 2.8, wz), 0x1a0e06));
+      this.group.add(makeEmissive(0.4, 0.5, 0.05, new THREE.Vector3(-hw + 0.06, 2.8, wz), 0x1830bf));
     }
 
-    // Long refectory table.
-    makeDiningTable(this.group, 0, 0, 6.5, 1.2, 0x1f120a, 0x0e0604, this.bounds);
+    // Long refectory table — proportional to 22w room.
+    makeDiningTable(this.group, 0, 0, 10.0, 1.3, 0x1f120a, 0x0e0604, this.bounds);
 
-    // Chandeliers: two iron hoops over the table.
-    for (const hx of [-1.8, 1.8]) {
+    // Armchairs near the fireplace.
+    makeArmchair(this.group, -3.5, -hd + 2.5, 0x3a2018, this.bounds);
+    makeArmchair(this.group, 3.5, -hd + 2.5, 0x3a2018, this.bounds);
+    // Armchairs at south end.
+    makeArmchair(this.group, -hw + 1.5, hd - 2.5, 0x3a2018, this.bounds);
+    makeArmchair(this.group, hw - 1.5, hd - 2.5, 0x3a2018, this.bounds);
+
+    // Bookshelves in south corners.
+    makeBookshelf(this.group, -hw + 0.04, hd - 0.05, 3.0, h - 0.5, 1, 0x1a0e06, this.bounds);
+    makeBookshelf(this.group, hw - 0.04, hd - 0.05, 3.0, h - 0.5, -1, 0x1a0e06, this.bounds);
+
+    // Chandeliers: three iron hoops over the table — spread along 22w.
+    for (const hx of [-4.0, 0, 4.0]) {
       const hoop = new THREE.Mesh(
-        new THREE.TorusGeometry(0.65, 0.05, 6, 14),
+        new THREE.TorusGeometry(0.7, 0.05, 6, 14),
         new THREE.MeshLambertMaterial({ color: 0x0a0402, flatShading: true }),
       );
       hoop.rotation.x = Math.PI / 2;
       hoop.position.set(hx, h - 1.3, 0);
       this.group.add(hoop);
-      for (let i = 0; i < 5; i++) {
-        const angle = (i / 5) * Math.PI * 2;
+      for (let i = 0; i < 6; i++) {
+        const angle = (i / 6) * Math.PI * 2;
         const bulb = new THREE.Mesh(
           new THREE.SphereGeometry(0.06, 8, 6),
           new THREE.MeshBasicMaterial({ color: 0xffb060 }),
         );
-        bulb.position.set(hx + Math.cos(angle) * 0.65, h - 1.3, Math.sin(angle) * 0.65);
+        bulb.position.set(hx + Math.cos(angle) * 0.7, h - 1.3, Math.sin(angle) * 0.7);
         this.group.add(bulb);
       }
-      const light = new THREE.PointLight(0xffa860, 0.9, 6, 2);
+      const light = new THREE.PointLight(0xffa860, 0.9, 7, 2);
       light.position.set(hx, h - 1.5, 0);
       this.group.add(light);
     }
 
-    // Sconces.
-    makeSconce(this.group, -2.0, 2.6, -hd + 0.1, 1, 0xffb060, 0.7, 4);
-    makeSconce(this.group, 2.0, 2.6, -hd + 0.1, 1, 0xffb060, 0.7, 4);
+    // Sconces — more along the longer walls.
+    makeSconce(this.group, -3.0, 2.8, -hd + 0.1, 1, 0xffb060, 0.7, 4.5);
+    makeSconce(this.group, 3.0, 2.8, -hd + 0.1, 1, 0xffb060, 0.7, 4.5);
+    for (const wz of [-5.0, -1.0, 3.0, 6.5]) {
+      makeSconce(this.group, -hw + 0.1, 2.6, wz, 1, 0xffb060, 0.5, 4);
+      makeSconce(this.group, hw - 0.1, 2.6, wz, -1, 0xffb060, 0.5, 4);
+    }
 
-    // Dark gothic portraits on walls.
-    makeFramedPicture(this.group, -hw, 3.5, 1.0, 1.0, 1.3, 1, 0x2a1810, 0x140802);
-    makeFramedPicture(this.group, hw, 3.5, 1.0, 1.0, 1.3, -1, 0x2a1810, 0x140802);
+    // Dark gothic portraits on walls — more for longer walls.
+    makeFramedPicture(this.group, -hw, 3.8, -4.0, 1.0, 1.3, 1, 0x2a1810, 0x140802);
+    makeFramedPicture(this.group, -hw, 3.8, 2.0, 1.0, 1.3, 1, 0x2a1810, 0x140802);
+    makeFramedPicture(this.group, hw, 3.8, -4.0, 1.0, 1.3, -1, 0x2a1810, 0x140802);
+    makeFramedPicture(this.group, hw, 3.8, 2.0, 1.0, 1.3, -1, 0x2a1810, 0x140802);
 
-    makeRug(this.group, 0, 0, 3.8, 6.8, 0x4a2018, 0x6a2820);
+    makeRug(this.group, 0, 0, 5.5, 9.5, 0x4a2018, 0x6a2820);
+
+    // Abandonment debris.
+    addAbandonment(this.group, w, d, h);
 
     makeExitDoor(this.group, 0, hd - 0.05, 1.4, 2.4, -1, 0x1a0e06, 0x3a3a38);
     this.triggerBoxes.push({
       id: 'exit_to_campus',
-      box: aabbFromCenter(0, 1.0, hd - 0.8, 1.2, 1.2, 0.7),
+      box: aabbFromCenter(0, 1.0, hd - 0.25, 1.2, 1.2, 0.35),
       onEnter: () => this.onExit(),
       once: true,
     });
