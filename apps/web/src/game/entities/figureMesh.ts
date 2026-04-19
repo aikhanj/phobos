@@ -41,7 +41,7 @@ export function createFigureMesh(): THREE.Group {
   group.add(head);
 
   // Shroud / drape — wider than the body, hangs from shoulders.
-  // Reads as something draped over the figure, obscuring the shape.
+  // Reads as an academic robe draped over Dean Eisgruber.
   const shroudMat = baseMat.clone();
   shroudMat.color.setHex(0x080810);
   const shroud = new THREE.Mesh(
@@ -50,6 +50,29 @@ export function createFigureMesh(): THREE.Group {
   );
   shroud.position.set(0, 1.6, -0.06);
   group.add(shroud);
+
+  // ORANGE STOLE — Princeton doctoral hood. This is the signature read
+  // that makes the figure unmistakably "Dean Eisgruber" — two vertical
+  // strips of Princeton orange running down the front of the black robe.
+  const stoleMat = new THREE.MeshLambertMaterial({
+    color: 0xe77500, // Princeton orange
+    flatShading: true,
+    transparent: true,
+    opacity: 0,
+    fog: false,
+  });
+  const leftStole = new THREE.Mesh(
+    new THREE.BoxGeometry(0.08, 1.25, 0.03),
+    stoleMat,
+  );
+  leftStole.position.set(-0.12, 1.65, 0.09);
+  group.add(leftStole);
+  const rightStole = new THREE.Mesh(
+    new THREE.BoxGeometry(0.08, 1.25, 0.03),
+    stoleMat.clone(),
+  );
+  rightStole.position.set(0.12, 1.65, 0.09);
+  group.add(rightStole);
 
   // Left arm — hangs too low, past where a human arm would stop.
   const armMat = baseMat.clone();

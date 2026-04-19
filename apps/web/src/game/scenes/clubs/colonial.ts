@@ -6,6 +6,8 @@ import {
   buildShell, makeBox, makeEmissive, makeDiningTable, makeSconce, makePilaster,
   makeArmchair, makeBookshelf, makeRug, makeExitDoor, makeWindow,
   makeFramedPicture, addAbandonment,
+  makePickupBeacon, updatePickupBeacon, type PickupBeacon,
+  makeHideZone, type HideZone, makeBloodWriting,
 } from './_shared';
 
 /**
@@ -27,7 +29,29 @@ export class ColonialInterior implements GameScene {
   private fireGlow!: THREE.PointLight;
   private pickup!: THREE.Mesh;
   private pickupLight!: THREE.PointLight;
+  private pickupBeacon!: PickupBeacon;
   private pickupCollected = false;
+  private hideZoneRefs: HideZone[] = [];
+
+  // ── 3-CANDLE PUZZLE ──
+  // Player must find 3 black candles scattered in the room and place
+  // them in the candelabrum on the dining table. Only then does the
+  // laptop-cover cloth fall away, letting them pick up BOLT CUTTERS.
+  private hasCandle1 = false;
+  private hasCandle2 = false;
+  private hasCandle3 = false;
+  private candle1Mesh!: THREE.Group;
+  private candle2Mesh!: THREE.Group;
+  private candle3Mesh!: THREE.Group;
+  private candle1Light!: THREE.PointLight;
+  private candle2Light!: THREE.PointLight;
+  private candle3Light!: THREE.PointLight;
+  /** The 3 candle+flame meshes on the dining table. Appear as you collect. */
+  private candelabrumFlames: THREE.Mesh[] = [];
+  private candelabrumCandles: THREE.Mesh[] = [];
+  private candelabrumLights: THREE.PointLight[] = [];
+  /** Cloth covering the laptop until puzzle is solved. */
+  private laptopCover!: THREE.Mesh;
   private readonly onExit: () => void;
   private onPickup: (() => void) | null = null;
 
@@ -126,12 +150,42 @@ export class ColonialInterior implements GameScene {
 
     makeRug(this.group, 0, 0, 5.0, 9.0, 0x4a2420, 0x6a3830);
 
+    // ── 3-CANDLE PUZZLE ──
+    // Three black candles scattered in the room. Player picks each up
+    // and it "places" itself in the candelabrum on the dining table.
+    // When all three are placed, the candelabrum's flames light and
+    // the laptop's cloth cover falls away, revealing BOLT CUTTERS.
+    this.buildCandles();
+    this.buildCandelabrum();
+
     // Pickup: Laptop on the side table near the fireplace.
     this.pickup = makeBox(0.3, 0.02, 0.2, new THREE.Vector3(-5.0, 0.66, -hd + 2.0), 0x1a1a1a);
     this.group.add(this.pickup);
+    // Cloth cover — drapes over the laptop until puzzle solved.
+    const clothMat = new THREE.MeshLambertMaterial({ color: 0x6a2020, flatShading: true });
+    this.laptopCover = new THREE.Mesh(
+      new THREE.BoxGeometry(0.55, 0.18, 0.45),
+      clothMat,
+    );
+    this.laptopCover.position.set(-5.0, 0.72, -hd + 2.0);
+    this.group.add(this.laptopCover);
     this.pickupLight = new THREE.PointLight(0xffe0a0, 0.4, 2);
     this.pickupLight.position.set(-5.0, 0.96, -hd + 2.0);
     this.group.add(this.pickupLight);
+    this.pickupBeacon = makePickupBeacon(this.group, -5.0, -hd + 2.0, 0.66, 0xcce0ff);
+    // Beacon hidden until puzzle solved.
+    this.pickupBeacon.group.visible = false;
+
+    // BLOOD WRITING — "FORM 7B" on the north wall above the fireplace.
+    makeBloodWriting(this.group, 'FORM 7B', 0, 3.5, -hd + 0.14, 'north', 0.5);
+
+    // HIDE ZONES — under the dining table, both sides. Crouch + still.
+    this.hideZoneRefs.push(makeHideZone(
+      this.group, 'hide_colonial_table_n', -1.8, 0.4, -1.5, 0.9, 0.6, 0.9,
+    ));
+    this.hideZoneRefs.push(makeHideZone(
+      this.group, 'hide_colonial_table_s', 1.8, 0.4, 1.5, 0.9, 0.6, 0.9,
+    ));
 
     // Abandonment debris.
     addAbandonment(this.group, w, d, h);
@@ -145,6 +199,100 @@ export class ColonialInterior implements GameScene {
     });
   }
 
+  /** Build a single black candle mesh with a wick. Used for puzzle candles. */
+  private makeCandleMesh(): THREE.Group {
+    const g = new THREE.Group();
+    const wax = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05, 0.05, 0.22, 8),
+      new THREE.MeshLambertMaterial({ color: 0x181818, flatShading: true }),
+    );
+    wax.position.y = 0.11;
+    g.add(wax);
+    const wick = new THREE.Mesh(
+      new THREE.BoxGeometry(0.015, 0.03, 0.015),
+      new THREE.MeshLambertMaterial({ color: 0x3a2a10, flatShading: true }),
+    );
+    wick.position.y = 0.24;
+    g.add(wick);
+    return g;
+  }
+
+  /** Position the three findable candles around the Colonial room. */
+  private buildCandles(): void {
+    // Positions chosen to be on clearly-visible open surfaces — not
+    // inside any furniture.
+    // 1. On the west side table near the fireplace (south-west of the table).
+    this.candle1Mesh = this.makeCandleMesh();
+    this.candle1Mesh.position.set(-6.0, 0.7, 2.5);
+    this.group.add(this.candle1Mesh);
+    this.candle1Light = new THREE.PointLight(0xffaa70, 1.3, 2.6, 2);
+    this.candle1Light.position.set(-6.0, 1.0, 2.5);
+    this.group.add(this.candle1Light);
+    // 2. On the east side of the dining table (opposite side from spawn).
+    this.candle2Mesh = this.makeCandleMesh();
+    this.candle2Mesh.position.set(3.5, 0.95, -0.4);
+    this.group.add(this.candle2Mesh);
+    this.candle2Light = new THREE.PointLight(0xffaa70, 1.3, 2.6, 2);
+    this.candle2Light.position.set(3.5, 1.25, -0.4);
+    this.group.add(this.candle2Light);
+    // 3. On the floor near the south armchair (east side).
+    this.candle3Mesh = this.makeCandleMesh();
+    this.candle3Mesh.position.set(5.5, 0.12, 3.5);
+    this.group.add(this.candle3Mesh);
+    this.candle3Light = new THREE.PointLight(0xffaa70, 1.3, 2.6, 2);
+    this.candle3Light.position.set(5.5, 0.42, 3.5);
+    this.group.add(this.candle3Light);
+  }
+
+  /** Build the candelabrum centerpiece — 3 empty holders in the middle of the table. */
+  private buildCandelabrum(): void {
+    // Base of the candelabrum.
+    const base = makeBox(0.7, 0.08, 0.25, new THREE.Vector3(0, 0.93, 0), 0x2a2018);
+    this.group.add(base);
+    // Three cups (empty until candles placed).
+    const cupColor = 0x3a3028;
+    const positions: Array<[number, number, number]> = [
+      [-0.25, 1.00, 0],
+      [0,     1.00, 0],
+      [0.25,  1.00, 0],
+    ];
+    for (let i = 0; i < 3; i++) {
+      const [px, py, pz] = positions[i];
+      // Holder cup.
+      this.group.add(makeBox(0.08, 0.05, 0.08, new THREE.Vector3(px, py, pz), cupColor));
+      // Candle + flame — hidden until the matching candle is collected.
+      const lightCandle = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.04, 0.04, 0.22, 8),
+        new THREE.MeshLambertMaterial({ color: 0x181818, flatShading: true }),
+      );
+      lightCandle.position.set(px, py + 0.14, pz);
+      lightCandle.visible = false;
+      this.group.add(lightCandle);
+      this.candelabrumCandles.push(lightCandle);
+      // Emissive flame mesh.
+      const flameMat = new THREE.MeshBasicMaterial({ color: 0xffcc60 });
+      const flame = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.08, 0.035), flameMat);
+      flame.position.set(px, py + 0.3, pz);
+      flame.visible = false;
+      this.group.add(flame);
+      this.candelabrumFlames.push(flame);
+      // Per-candle point light — added to the scene, disabled until placed.
+      const pl = new THREE.PointLight(0xffcc60, 0, 3.5, 2);
+      pl.position.set(px, py + 0.32, pz);
+      this.group.add(pl);
+      this.candelabrumLights.push(pl);
+    }
+  }
+
+  /** Check if all 3 candles are placed, and if so run the "reveal" sequence. */
+  private maybeSolvePuzzle(): void {
+    if (this.hasCandle1 && this.hasCandle2 && this.hasCandle3) {
+      // Reveal: uncover the laptop + activate its beacon.
+      this.laptopCover.visible = false;
+      this.pickupBeacon.group.visible = true;
+    }
+  }
+
   unload(): void {
     this.group.traverse((obj) => {
       const m = obj as THREE.Mesh;
@@ -156,19 +304,46 @@ export class ColonialInterior implements GameScene {
     this.group.clear();
     this.bounds.length = 0;
     this.triggerBoxes.length = 0;
+    this.hideZoneRefs.length = 0;
   }
 
   update(dt: number): void {
     this.time += dt;
     if (this.fireGlow) this.fireGlow.intensity = 0.65 + Math.sin(this.time * 9) * 0.04;
-    // Pickup light pulse.
-    if (!this.pickupCollected) {
-      this.pickupLight.intensity = 0.3 + Math.sin(this.time * 2.5) * 0.15;
+    // Puzzle candle lights — pulse to catch the eye.
+    const pulse = 0.8 + 0.5 * Math.sin(this.time * 3);
+    if (!this.hasCandle1) {
+      this.candle1Light.intensity = 0.8 + pulse * 0.5;
+      this.candle1Mesh.position.y = 0.7 + Math.sin(this.time * 2) * 0.025;
+      this.candle1Mesh.rotation.y += dt * 0.6;
+    }
+    if (!this.hasCandle2) {
+      this.candle2Light.intensity = 0.8 + pulse * 0.5;
+      this.candle2Mesh.position.y = 0.95 + Math.sin(this.time * 2.2) * 0.025;
+      this.candle2Mesh.rotation.y += dt * 0.5;
+    }
+    if (!this.hasCandle3) {
+      this.candle3Light.intensity = 0.8 + pulse * 0.5;
+      this.candle3Mesh.position.y = 0.12 + Math.sin(this.time * 2.4) * 0.02;
+      this.candle3Mesh.rotation.y += dt * 0.55;
+    }
+    // Candelabrum flames flicker when lit.
+    for (let i = 0; i < this.candelabrumFlames.length; i++) {
+      const fl = this.candelabrumFlames[i];
+      if (!fl.visible) continue;
+      fl.scale.y = 0.9 + Math.sin(this.time * 12 + i) * 0.12 + (Math.random() - 0.5) * 0.08;
+    }
+    // Pickup light pulse — only after puzzle solved.
+    if (!this.pickupCollected && this.hasCandle1 && this.hasCandle2 && this.hasCandle3) {
+      this.pickupLight.intensity = 0.5 + Math.sin(this.time * 2.5) * 0.3;
+      updatePickupBeacon(this.pickupBeacon, this.time);
     }
   }
 
   colliders(): AABB[] { return this.bounds; }
   triggers(): Trigger[] { return this.triggerBoxes; }
+  hideZones(): HideZone[] { return this.hideZoneRefs; }
+  floorHeightAt(): number { return 0; }
 
   /** Obstacle boxes the Colonial stalker must route around (dining table only). */
   getStalkerAvoidance(): AABB[] {
@@ -185,17 +360,71 @@ export class ColonialInterior implements GameScene {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const scene = this;
     const hd = SCENE_CONFIGS.colonial.dimensions.depth / 2;
+    const revealSlot = (i: number): void => {
+      scene.candelabrumCandles[i].visible = true;
+      scene.candelabrumFlames[i].visible = true;
+      scene.candelabrumLights[i].intensity = 1.1;
+    };
     return [
+      // ── CANDLE 1 (west side table) ─────────────────────────────
+      {
+        id: 'puzzle_candle1',
+        box: aabbFromCenter(-6.0, 0.8, 2.5, 0.45, 0.45, 0.45),
+        hint: 'take black candle',
+        range: 3.0,
+        get enabled(): boolean { return !scene.hasCandle1; },
+        onInteract: () => {
+          scene.hasCandle1 = true;
+          scene.candle1Mesh.visible = false;
+          scene.candle1Light.intensity = 0;
+          revealSlot(0);
+          scene.maybeSolvePuzzle();
+        },
+      },
+      // ── CANDLE 2 (east end of dining table) ────────────────────
+      {
+        id: 'puzzle_candle2',
+        box: aabbFromCenter(3.5, 1.05, -0.4, 0.45, 0.45, 0.45),
+        hint: 'take black candle',
+        range: 3.0,
+        get enabled(): boolean { return !scene.hasCandle2; },
+        onInteract: () => {
+          scene.hasCandle2 = true;
+          scene.candle2Mesh.visible = false;
+          scene.candle2Light.intensity = 0;
+          revealSlot(1);
+          scene.maybeSolvePuzzle();
+        },
+      },
+      // ── CANDLE 3 (floor near south armchair) ───────────────────
+      {
+        id: 'puzzle_candle3',
+        box: aabbFromCenter(5.5, 0.25, 3.5, 0.45, 0.45, 0.45),
+        hint: 'take black candle',
+        range: 3.0,
+        get enabled(): boolean { return !scene.hasCandle3; },
+        onInteract: () => {
+          scene.hasCandle3 = true;
+          scene.candle3Mesh.visible = false;
+          scene.candle3Light.intensity = 0;
+          revealSlot(2);
+          scene.maybeSolvePuzzle();
+        },
+      },
+      // ── LAPTOP (reward) — enabled only when all 3 candles placed ──
       {
         id: 'pickup_colonial',
-        box: aabbFromCenter(-5.0, 0.66, -hd + 2.0, 0.2, 0.1, 0.2),
-        hint: 'examine',
-        range: 2.5,
-        get enabled(): boolean { return !scene.pickupCollected; },
+        box: aabbFromCenter(-5.0, 0.8, -hd + 2.0, 0.45, 0.45, 0.45),
+        hint: 'take bolt cutters',
+        range: 3.0,
+        get enabled(): boolean {
+          return !scene.pickupCollected && scene.hasCandle1 && scene.hasCandle2 && scene.hasCandle3;
+        },
         onInteract: () => {
           scene.pickupCollected = true;
           scene.pickup.visible = false;
           scene.pickupLight.intensity = 0;
+          scene.pickupBeacon.group.visible = false;
           scene.onPickup?.();
         },
       },

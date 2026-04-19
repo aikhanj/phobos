@@ -6,6 +6,8 @@ import {
   buildShell, makeBox, makeEmissive, makeFireplace, makeDiningTable, makeSconce,
   makeRug, makeExitDoor, makeFramedPicture,
   makeBookshelf, makeArmchair, addAbandonment,
+  makePickupBeacon, updatePickupBeacon, type PickupBeacon,
+  makeHideZone, type HideZone, makeBloodWriting,
 } from './_shared';
 
 /**
@@ -27,7 +29,9 @@ export class CapGownInterior implements GameScene {
   private fireGlow!: THREE.PointLight;
   private pickup!: THREE.Mesh;
   private pickupLight!: THREE.PointLight;
+  private pickupBeacon!: PickupBeacon;
   private pickupCollected = false;
+  private hideZoneRefs: HideZone[] = [];
   private readonly onExit: () => void;
   private onPickup: (() => void) | null = null;
 
@@ -165,6 +169,18 @@ export class CapGownInterior implements GameScene {
     this.pickupLight = new THREE.PointLight(0xffe0a0, 0.4, 2);
     this.pickupLight.position.set(-5.0, 0.86, -hd + 2.5);
     this.group.add(this.pickupLight);
+    this.pickupBeacon = makePickupBeacon(this.group, -5.0, -hd + 2.5, 0.56, 0xff4040);
+
+    // BLOOD WRITING — "ABSORBED" above the fireplace, gothic chapel vibe.
+    makeBloodWriting(this.group, 'ABSORBED', 0, 3.5, -hd + 0.14, 'north', 0.45);
+
+    // HIDE ZONES — under the dining table.
+    this.hideZoneRefs.push(makeHideZone(
+      this.group, 'hide_capgown_table_n', -1.8, 0.4, -1.5, 0.9, 0.6, 0.9,
+    ));
+    this.hideZoneRefs.push(makeHideZone(
+      this.group, 'hide_capgown_table_s', 1.8, 0.4, 1.5, 0.9, 0.6, 0.9,
+    ));
 
     // Abandonment debris.
     addAbandonment(this.group, w, d, h);
@@ -189,6 +205,7 @@ export class CapGownInterior implements GameScene {
     this.group.clear();
     this.bounds.length = 0;
     this.triggerBoxes.length = 0;
+    this.hideZoneRefs.length = 0;
   }
 
   update(dt: number): void {
@@ -197,11 +214,14 @@ export class CapGownInterior implements GameScene {
     // Pickup light pulse.
     if (!this.pickupCollected) {
       this.pickupLight.intensity = 0.3 + Math.sin(this.time * 2.5) * 0.15;
+      updatePickupBeacon(this.pickupBeacon, this.time);
     }
   }
 
   colliders(): AABB[] { return this.bounds; }
   triggers(): Trigger[] { return this.triggerBoxes; }
+  hideZones(): HideZone[] { return this.hideZoneRefs; }
+  floorHeightAt(): number { return 0; }
 
   interactables(): Interactable[] {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -210,14 +230,15 @@ export class CapGownInterior implements GameScene {
     return [
       {
         id: 'pickup_capgown',
-        box: aabbFromCenter(-5.0, 0.56, -hd + 2.5, 0.2, 0.1, 0.2),
-        hint: 'examine',
-        range: 2.5,
+        box: aabbFromCenter(-5.0, 0.75, -hd + 2.5, 0.4, 0.35, 0.4),
+        hint: 'read seal',
+        range: 3.0,
         get enabled(): boolean { return !scene.pickupCollected; },
         onInteract: () => {
           scene.pickupCollected = true;
           scene.pickup.visible = false;
           scene.pickupLight.intensity = 0;
+          scene.pickupBeacon.group.visible = false;
           scene.onPickup?.();
         },
       },

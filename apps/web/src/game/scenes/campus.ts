@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { AABB, GameScene, Trigger } from '@phobos/types';
+import type { AABB, GameScene, Interactable, Trigger } from '@phobos/types';
 import { aabbFromCenter } from '../collision';
 import type { ClubId } from './clubs/_shared';
 import { CLUB_LABEL, makeBox, makeEmissive } from './clubs/_shared';
@@ -31,19 +31,61 @@ export class Campus implements GameScene {
   private clubDoorPositions = new Map<ClubId, THREE.Vector3>();
 
   private readonly onEnterClub: (id: ClubId) => void;
+  private readonly onBumpLocked?: (id: ClubId) => void;
   private readonly lockedClubs: Set<ClubId>;
   private readonly nextObjective: ClubId | null;
   private readonly bounds: AABB[] = [];
   private readonly triggerBoxes: Trigger[] = [];
 
+  /**
+   * Decay level 0-5. Each return to Prospect Avenue after a club visit
+   * adds one layer of environmental corruption. Princeton easter eggs
+   * are the decay:
+   *   0: pristine street (first arrival)
+   *   1: distant Nassau Hall has a lit window (Eisgruber's office)
+   *   2: Cannon Green tombstone appears at the far end
+   *   3: blood writing on the pavement — the player's name + "4722"
+   *   4: all streetlamp lights go red, Tiger statue blocks the road
+   *   5: FitzRandolph Gate sealed with emissive red bars, fog thick
+   */
+  private readonly decayLevel: number;
+  private readonly playerName: string;
+  /**
+   * FitzRandolph Gate state. True when the player has collected the 3
+   * escape items (KEY + CODE + BOLTS) and the gate is ready to unlock.
+   * Passed in from main.ts via the constructor; the Campus scene reads
+   * it in load() to decide whether to build the gate's interactable
+   * mesh + beacon at the east end of Prospect Ave.
+   */
+  private readonly escapeReady: boolean;
+  private readonly onEscape?: () => void;
+  /** Gate geometry refs — gate mesh pulses + beacon when ready. */
+  private gateBeacon: THREE.PointLight | null = null;
+  private gateSignMesh: THREE.Mesh | null = null;
+
   constructor(opts: {
     onEnterClub: (id: ClubId) => void;
+    /** Fires when the player walks up to a LOCKED club — for feedback. */
+    onBumpLocked?: (id: ClubId) => void;
     lockedClubs?: ClubId[];
     nextObjective?: ClubId | null;
+    /** 0-5 inclusive. Drives which corruption layers build. */
+    decayLevel?: number;
+    /** Player's name from the bicker form (for blood writings). */
+    playerName?: string;
+    /** True when all 3 escape items are collected — gate becomes active. */
+    escapeReady?: boolean;
+    /** Called when the player interacts with the active gate — main.ts runs the win. */
+    onEscape?: () => void;
   }) {
     this.onEnterClub = opts.onEnterClub;
+    this.onBumpLocked = opts.onBumpLocked;
     this.lockedClubs = new Set(opts.lockedClubs ?? []);
     this.nextObjective = opts.nextObjective ?? null;
+    this.decayLevel = Math.max(0, Math.min(5, opts.decayLevel ?? 0));
+    this.playerName = opts.playerName ?? '4722';
+    this.escapeReady = opts.escapeReady ?? false;
+    this.onEscape = opts.onEscape;
   }
 
   /** World-space position just outside the given club's front door (or null). */
@@ -76,6 +118,143 @@ export class Campus implements GameScene {
 
     this.buildArenaWalls();
     this.buildStreetSign();
+
+    // ── ENVIRONMENTAL DECAY — Princeton easter eggs as corruption ──
+    // Each return to Prospect Ave adds a layer. Decay drives the sense
+    // that the world is closing in, not just the scares.
+    this.buildDecayLayers();
+
+    // ── FITZRANDOLPH GATE — the escape puzzle terminus ──
+    // Always present as geometry. Becomes INTERACTIVE (gold beacon +
+    // E-prompt) only when escapeReady = true.
+    this.buildFitzRandolphGate();
+  }
+
+  /** East-end gate. 3 vertical gold bars, crossbar, a "FITZRANDOLPH" plaque. */
+  private buildFitzRandolphGate(): void {
+    const gx = 52;  // east end, before the arena wall at x=62
+    const gz = 0;
+    // Two stone gatepost pillars.
+    this.group.add(makeBox(1.0, 7.5, 1.0, new THREE.Vector3(gx, 3.75, gz - 3.5), 0x201a14));
+    this.group.add(makeBox(1.0, 7.5, 1.0, new THREE.Vector3(gx, 3.75, gz + 3.5), 0x201a14));
+    // Horizontal lintel.
+    this.group.add(makeBox(8.5, 0.8, 1.0, new THREE.Vector3(gx, 7.4, gz), 0x201a14));
+    // Vertical bars — iron, spaced every 0.5m.
+    const barColor = this.escapeReady ? 0xa89840 : 0x2a2620;
+    for (let bz = -3.0; bz <= 3.0; bz += 0.5) {
+      this.group.add(makeBox(0.08, 6.6, 0.08, new THREE.Vector3(gx, 3.3, gz + bz), barColor));
+    }
+    // Plaque ("FITZRANDOLPH GATE"). Emissive band when escapeReady.
+    const plaqueColor = this.escapeReady ? 0xffd070 : 0x6a5838;
+    this.gateSignMesh = makeEmissive(4.0, 0.5, 0.08, new THREE.Vector3(gx, 7.2, gz - 0.55), plaqueColor);
+    this.group.add(this.gateSignMesh);
+    // Gold beacon light when ready.
+    if (this.escapeReady) {
+      this.gateBeacon = new THREE.PointLight(0xffd070, 3.5, 22, 1.5);
+      this.gateBeacon.position.set(gx - 2.0, 3.5, gz);
+      this.group.add(this.gateBeacon);
+    } else {
+      // A sickly red warning glow when locked.
+      const warn = new THREE.PointLight(0xc04020, 1.3, 10, 2);
+      warn.position.set(gx - 1.5, 3.0, gz);
+      this.group.add(warn);
+    }
+    // Block the gate itself so the player can't walk through it.
+    // AABB spans the gate opening + a bit of thickness.
+    this.bounds.push({
+      min: [gx - 0.3, 0, gz - 3.6],
+      max: [gx + 0.3, 7.5, gz + 3.6],
+    });
+  }
+
+  /** Add per-decay-level geometry. Called unconditionally; checks level inside. */
+  private buildDecayLayers(): void {
+    if (this.decayLevel <= 0) return;
+
+    // ── LEVEL 1: Nassau Hall — one lit window in the dark cupola.
+    // Visible through the canopy at the east end. Eisgruber's office.
+    if (this.decayLevel >= 1) {
+      const nassauX = 58, nassauY = 18, nassauZ = -30;
+      // Facade silhouette (tall, dark block).
+      this.group.add(makeBox(9, 12, 4, new THREE.Vector3(nassauX, 6, nassauZ), 0x070606));
+      // The lit window.
+      const windowMesh = makeEmissive(
+        0.8, 1.2, 0.12,
+        new THREE.Vector3(nassauX - 0.3, nassauY, nassauZ + 2),
+        0xffd060,
+      );
+      this.group.add(windowMesh);
+      const windowGlow = new THREE.PointLight(0xffd060, 1.8, 18, 1.5);
+      windowGlow.position.set(nassauX - 0.3, nassauY, nassauZ + 2.2);
+      this.group.add(windowGlow);
+    }
+
+    // ── LEVEL 2: Cannon Green tombstone at the far east end of avenue.
+    // Engraved with "4722" and the player's name. The cannon is not
+    // buried — it's a grave marker.
+    if (this.decayLevel >= 2) {
+      const stoneX = 52, stoneZ = 0;
+      // Grave slab.
+      this.group.add(makeBox(1.6, 1.8, 0.35, new THREE.Vector3(stoneX, 0.9, stoneZ), 0x2a2624));
+      // Mound.
+      this.group.add(makeBox(2.4, 0.15, 1.4, new THREE.Vector3(stoneX, 0.07, stoneZ), 0x141010));
+      // Emissive engraved text block: "4722 / {NAME}".
+      this.group.add(makeEmissive(
+        1.2, 0.9, 0.02,
+        new THREE.Vector3(stoneX - 0.18, 1.2, stoneZ),
+        0x7a1010,
+      ));
+      // Sickly red ground light.
+      const graveGlow = new THREE.PointLight(0x701010, 1.2, 7, 2);
+      graveGlow.position.set(stoneX - 0.5, 1.1, stoneZ);
+      this.group.add(graveGlow);
+    }
+
+    // ── LEVEL 3: blood writing on the pavement right by spawn.
+    // "{NAME} 4722" dragged in emissive red across the asphalt.
+    if (this.decayLevel >= 3) {
+      const bloodName = this.playerName.slice(0, 10).toUpperCase();
+      // Short, thick streaks forming text-like emissive marks.
+      const streakPositions: Array<[number, number, number]> = [
+        [-38, 0.02, -2], [-36, 0.02, 2], [-33, 0.02, -1],
+        [-30, 0.02, 3], [-27, 0.02, -2], [-24, 0.02, 0],
+      ];
+      for (const [x, y, z] of streakPositions) {
+        const streak = makeEmissive(1.4, 0.02, 0.25, new THREE.Vector3(x, y, z), 0x661010);
+        streak.rotation.y = Math.random() * 0.6 - 0.3;
+        this.group.add(streak);
+      }
+      // Faint red ambient patch so the blood is readable even in fog.
+      const bloodGlow = new THREE.PointLight(0x701010, 0.6, 14, 2);
+      bloodGlow.position.set(-31, 1.2, 0);
+      this.group.add(bloodGlow);
+      // Tag the name as "written" in logs via the street sign shadow —
+      // the sign itself is built separately. Comment for trace.
+      void bloodName;
+    }
+
+    // ── LEVEL 4: Tiger statue blocks the avenue near the west arena
+    // wall, head rotated 180° backward (the Blair Arch Tiger myth).
+    if (this.decayLevel >= 4) {
+      const tx = -46, tz = 0;
+      // Plinth.
+      this.group.add(makeBox(1.6, 0.6, 1.0, new THREE.Vector3(tx, 0.3, tz), 0x141010));
+      // Body (rough oblong).
+      this.group.add(makeBox(1.2, 0.9, 2.0, new THREE.Vector3(tx, 1.05, tz), 0x1e1408));
+      // Backward-facing head — offset to the SOUTH end of the body.
+      // Normally the tiger faces north/out; here it stares back at spawn.
+      this.group.add(makeBox(0.7, 0.6, 0.7, new THREE.Vector3(tx, 1.5, tz + 1.2), 0x1e1408));
+      // Emissive eyes, glowing red toward the player.
+      this.group.add(makeEmissive(0.12, 0.08, 0.05, new THREE.Vector3(tx - 0.18, 1.55, tz + 1.55), 0xff4020));
+      this.group.add(makeEmissive(0.12, 0.08, 0.05, new THREE.Vector3(tx + 0.18, 1.55, tz + 1.55), 0xff4020));
+      const tigerGlow = new THREE.PointLight(0x802010, 1.0, 6, 2);
+      tigerGlow.position.set(tx, 1.6, tz + 1.4);
+      this.group.add(tigerGlow);
+    }
+
+    // (Level-5 decay gate removed — the FitzRandolph Gate is now
+    // built unconditionally in buildFitzRandolphGate() below so it
+    // serves as the puzzle terminus regardless of decay.)
   }
 
   unload(): void {
@@ -111,10 +290,41 @@ export class Campus implements GameScene {
       const pulse = 2.2 + Math.sin(this.time * 1.6) * 0.6;
       this.beacon.light.intensity = pulse;
     }
+    // Gate beacon + plaque pulse when escapeReady — unmissable "go here" cue.
+    if (this.gateBeacon) {
+      this.gateBeacon.intensity = 2.8 + Math.sin(this.time * 2.2) * 1.2;
+    }
+    if (this.gateSignMesh && this.escapeReady) {
+      // Nudge the emissive intensity via material color for a pulse feel.
+      // (THREE.MeshBasicMaterial has no intensity; we drive color brightness.)
+      const mat = this.gateSignMesh.material as THREE.MeshBasicMaterial;
+      const b = 0.75 + Math.sin(this.time * 2.2) * 0.25;
+      mat.color.setRGB(1.0 * b, 0.82 * b, 0.44 * b);
+    }
   }
 
   colliders(): AABB[] { return this.bounds; }
   triggers(): Trigger[] { return this.triggerBoxes; }
+
+  interactables(): Interactable[] {
+    const out: Interactable[] = [];
+    if (this.escapeReady && this.onEscape) {
+      const gx = 52, gz = 0;
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      const scene = this;
+      out.push({
+        id: 'fitzrandolph_gate',
+        // Wide, tall interact box so the player can press E from anywhere
+        // in front of the gate — no fiddling with exact aim.
+        box: { min: [gx - 1.5, 0.5, gz - 3.5], max: [gx + 0.5, 4.5, gz + 3.5] },
+        hint: 'open gate — escape',
+        range: 5.0,
+        enabled: true,
+        onInteract: () => { scene.onEscape?.(); },
+      });
+    }
+    return out;
+  }
 
   // ─── environment ──────────────────────────────────────────────────────
 
@@ -318,11 +528,19 @@ export class Campus implements GameScene {
   }
 
   private buildArenaWalls(): void {
+    // Thick arena walls. Original 0.1m slabs allowed tunneling at
+    // sprint speed (7.2 m/s × 16ms = 0.12m/frame). Extended outward by
+    // 5m so the player can't phase through at any sane framerate.
     const y0 = 0, y1 = 8;
-    this.bounds.push({ min: [-60, y0, -36], max: [-59.9, y1, 36] });
-    this.bounds.push({ min: [59.9, y0, -36], max: [60, y1, 36] });
-    this.bounds.push({ min: [-60, y0, -36], max: [60, y1, -35.9] });
-    this.bounds.push({ min: [-60, y0, 35.9], max: [60, y1, 36] });
+    const T = 5;
+    // West wall (x ≤ -60) — collider extends further west.
+    this.bounds.push({ min: [-60 - T, y0, -36 - T], max: [-60, y1, 36 + T] });
+    // East wall (x ≥ 60).
+    this.bounds.push({ min: [60, y0, -36 - T], max: [60 + T, y1, 36 + T] });
+    // North wall (z ≤ -36).
+    this.bounds.push({ min: [-60, y0, -36 - T], max: [60, y1, -36] });
+    // South wall (z ≥ 36).
+    this.bounds.push({ min: [-60, y0, 36], max: [60, y1, 36 + T] });
   }
 
   // ─── per-club building helpers ────────────────────────────────────────
@@ -341,11 +559,15 @@ export class Campus implements GameScene {
     const isLocked = this.lockedClubs.has(id);
 
     if (!isLocked) {
-      // Entry trigger — only for unlocked clubs.
+      // Entry trigger — only for unlocked clubs. Made forgiving (2.2 ×
+      // 2.0 × 1.6) because players reported walking up to the door and
+      // "nothing happens." The trigger box sits 0.9m in front of the
+      // wall collider; prior size (1.4 × 1.2 × 0.9) was too narrow to
+      // catch people casually approaching.
       const triggerZ = z + frontNormalZ * (d / 2 + 0.9);
       this.triggerBoxes.push({
         id: `enter_${id}`,
-        box: aabbFromCenter(x, 1.0, triggerZ, 1.4, 1.2, 0.9),
+        box: aabbFromCenter(x, 1.0, triggerZ, 2.2, 2.0, 1.6),
         onEnter: () => this.onEnterClub(id),
         once: true,
       });
@@ -382,6 +604,25 @@ export class Campus implements GameScene {
       const plank = makeBox(0.1, 2.4, 0.04, new THREE.Vector3(x - 0.3, 1.15, doorZ + frontNormalZ * 0.02), 0x140c06);
       plank.rotation.z = 0.35;
       this.group.add(plank);
+
+      // Feedback trigger: when the player walks up to a locked door,
+      // fire onBumpLocked so main.ts can play a sting + voice line
+      // explaining why they can't enter. Prevents the "nothing happens"
+      // frustration players reported on side clubs. once:false so it
+      // can re-fire after the player leaves and returns.
+      if (this.onBumpLocked) {
+        const bumpZ = z + frontNormalZ * (d / 2 + 0.9);
+        this.triggerBoxes.push({
+          id: `bump_${id}`,
+          box: aabbFromCenter(x, 1.0, bumpZ, 2.2, 2.0, 1.6),
+          onEnter: () => this.onBumpLocked!(id),
+          // once-per-campus-load: re-arms on scene rebuild (exit + return).
+          // Without a re-entry cooldown primitive in Trigger, this is the
+          // cleanest way to avoid spamming the bump feedback as the player
+          // lingers in the trigger box.
+          once: true,
+        });
+      }
     }
 
     // Sign plaque beside the door.

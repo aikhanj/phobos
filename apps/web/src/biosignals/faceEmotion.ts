@@ -34,9 +34,14 @@ export class FaceEmotionDetector {
   private ready = false;
   private inflight = false;
   private latest: FaceExpressionSnapshot = { ...EMPTY };
+  // Larger inputSize + lower threshold: face-api's TinyFaceDetector is
+  // brittle at 224/0.4 on 320x240 webcam feeds — a face in low light or
+  // slightly off-center fails silently. 320/0.3 catches many more frames
+  // at modest CPU cost. The "detected" flag gates fear_score, so more
+  // true-positives means the AI actually reads the player.
   private detectorOptions = new faceapi.TinyFaceDetectorOptions({
-    inputSize: 224,
-    scoreThreshold: 0.4,
+    inputSize: 320,
+    scoreThreshold: 0.3,
   });
 
   onDiagnostic: ((msg: string) => void) | null = null;

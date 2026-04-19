@@ -39,8 +39,8 @@ export class PhobosEntity {
   private reactInFlight = false;
 
   constructor(
-    private readonly voice: VoiceEngine,
-    private readonly creatureVoice: CreatureVoice,
+    private readonly voice: VoiceEngine | null,
+    private readonly creatureVoice: CreatureVoice | null,
   ) {
     this.group = createFigureMesh();
   }
@@ -51,7 +51,7 @@ export class PhobosEntity {
 
   setPosition(v: THREE.Vector3 | { x: number; y: number; z: number }): void {
     this.group.position.set(v.x, v.y, v.z);
-    this.creatureVoice.setPosition({ x: v.x, y: v.y + 1.4, z: v.z });
+    this.creatureVoice?.setPosition({ x: v.x, y: v.y + 1.4, z: v.z });
   }
 
   getVisibility(): EntityVisibility {
@@ -69,7 +69,7 @@ export class PhobosEntity {
 
   setFearBucket(b: FearBucket): void {
     this.fearBucket = b;
-    this.creatureVoice.setFearBucket(b);
+    this.creatureVoice?.setFearBucket(b);
   }
 
   /**
@@ -96,6 +96,10 @@ export class PhobosEntity {
     try {
       const bucket = bucketForScore(spike.score);
       this.setFearBucket(bucket);
+
+      // Voice-less mode: visuals still fire via setVisibility/setPosition
+      // upstream — only the dynamic TTS SFX is skipped here.
+      if (!this.voice) return;
 
       let spec: PromptSpec;
       if (override) {
@@ -126,6 +130,7 @@ export class PhobosEntity {
 
   /** Authored line from the current fear bucket, spatialized at the entity. */
   async speakAs(bucket: FearBucket, textOverride?: string): Promise<void> {
+    if (!this.creatureVoice) return;
     const prev = this.fearBucket;
     this.setFearBucket(bucket);
     try {

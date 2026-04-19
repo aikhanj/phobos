@@ -15,8 +15,14 @@ const KEY_MAP: Record<string, ClubId> = {
 /** Ordered chain used by the objective HUD + idle nudges. */
 const CHAIN: ClubId[] = ['tower', 'colonial', 'cannon', 'capgown', 'charter'];
 
-/** Only Tower is open at spawn. Every other target is boarded up. */
-const INITIAL_UNLOCKED: ClubId[] = ['tower'];
+/**
+ * PUZZLE MODE: all 5 chain clubs are open from the start. The player
+ * can visit them in any order. Escape items (KEY / CODE / BOLTS) drop
+ * from Tower / Cannon / Colonial respectively and gate FitzRandolph
+ * Gate, not club entry. Side clubs (ivy / cottage / tigerinn / terrace
+ * / cloister) stay boarded — they're atmospheric set dressing.
+ */
+const INITIAL_UNLOCKED: ClubId[] = ['tower', 'colonial', 'cannon', 'capgown', 'charter'];
 
 /**
  * Tracks the single linear chain. No Y-branching, no combination keys —

@@ -31,9 +31,15 @@ function overlaps2D(
 }
 
 /**
- * Top-down AABB slide. Mutates `out` in place. Tests X then Z so the player
- * slides along walls rather than sticking. Ignores Y — player is always on
- * the ground.
+ * Top-down AABB slide with Y-filtering. Tests X then Z so the player
+ * slides along walls. Colliders outside the player's vertical band
+ * are ignored — this is what lets the player walk under a loft (wall
+ * colliders start at y=3.2) and walk on top of the loft (ground-
+ * floor walls end at y=7 which overlaps, but the loft's own walls
+ * also overlap). Without this, multi-floor geometry creates invisible
+ * walls at ground level.
+ *
+ * `playerFeetY` = player floor Y. `playerHeadY` = feet + standing height.
  */
 export function moveAndSlide(
   currentX: number,
@@ -43,24 +49,54 @@ export function moveAndSlide(
   colliders: readonly AABB[],
   out: THREE.Vector2,
   radius = PLAYER_RADIUS,
+  playerFeetY = 0,
+  playerHeadY = 1.7,
 ): void {
-  let nextX = currentX + deltaX;
-  for (const c of colliders) {
-    if (overlaps2D(nextX, currentZ, radius, c)) {
-      if (deltaX > 0) nextX = c.min[0] - radius;
-      else if (deltaX < 0) nextX = c.max[0] + radius;
+  // A collider "affects" the player only if its Y range overlaps the
+  // player's [feet, head] band. Small tolerance so standing ON a
+  // collider's top edge doesn't register as colliding with it.
+  const EDGE_TOL = 0.05;
+  const relevant = (c: AABB): boolean =>
+    playerHeadY > c.min[1] + EDGE_TOL && playerFeetY < c.max[1] - EDGE_TOL;
+
+  // SUB-STEPPING: If the player's step is large (sprint at 7.2m/s ×
+  // 16ms ≈ 0.12m, or more at low framerates), split the motion into
+  // chunks ≤ radius/2 so we never skip over a thin collider between
+  // frames. This is the canonical CCD (continuous collision detection)
+  // trick for kinematic characters with axis-aligned box colliders.
+  const maxStep = radius * 0.5; // ≤ 0.16m per sub-step
+  const magnitude = Math.hypot(deltaX, deltaZ);
+  const subSteps = Math.max(1, Math.ceil(magnitude / maxStep));
+  const sdx = deltaX / subSteps;
+  const sdz = deltaZ / subSteps;
+
+  let posX = currentX;
+  let posZ = currentZ;
+
+  for (let step = 0; step < subSteps; step++) {
+    // X axis.
+    let nextX = posX + sdx;
+    for (const c of colliders) {
+      if (!relevant(c)) continue;
+      if (overlaps2D(nextX, posZ, radius, c)) {
+        if (sdx > 0) nextX = c.min[0] - radius;
+        else if (sdx < 0) nextX = c.max[0] + radius;
+      }
     }
+    // Z axis.
+    let nextZ = posZ + sdz;
+    for (const c of colliders) {
+      if (!relevant(c)) continue;
+      if (overlaps2D(nextX, nextZ, radius, c)) {
+        if (sdz > 0) nextZ = c.min[2] - radius;
+        else if (sdz < 0) nextZ = c.max[2] + radius;
+      }
+    }
+    posX = nextX;
+    posZ = nextZ;
   }
 
-  let nextZ = currentZ + deltaZ;
-  for (const c of colliders) {
-    if (overlaps2D(nextX, nextZ, radius, c)) {
-      if (deltaZ > 0) nextZ = c.min[2] - radius;
-      else if (deltaZ < 0) nextZ = c.max[2] + radius;
-    }
-  }
-
-  out.set(nextX, nextZ);
+  out.set(posX, posZ);
 }
 
 export { PLAYER_RADIUS };

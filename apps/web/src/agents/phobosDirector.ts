@@ -73,6 +73,9 @@ export class PhobosDirector {
       recentScares: this.scareHistory.slice(-5).map((s) => s.kind),
       currentMood: this.currentMood,
       isFirstTickInScene: this.isFirstTickInScene,
+      profile: ctx.profile,
+      recentHistory: ctx.recentHistory,
+      scareProfileDigest: ctx.scareProfileDigest,
     });
 
     this.pendingCall = true;
@@ -128,7 +131,7 @@ export class PhobosDirector {
     }
   }
 
-  onSceneChange(_scene: 'basement' | 'bedroom' | 'attic'): void {
+  onSceneChange(_scene: string): void {
     this.isFirstTickInScene = true;
   }
 

@@ -6,10 +6,12 @@ import { moveAndSlide } from './collision';
 // Target terminal speeds (metres/second)
 const WALK_SPEED = 3.3;
 const SPRINT_SPEED = 7.2;
+const CROUCH_SPEED = 1.4;
 // Time-constant for velocity lerp. Higher = snappier start/stop.
 // With τ = 1/DAMPING, ~63% of the way to target in 1/DAMPING seconds.
 const DAMPING = 14.0;
 const EYE_HEIGHT = 1.6;
+const CROUCH_EYE_HEIGHT = 0.7;
 
 // Head bob (camera Y sinusoid while moving)
 const BOB_AMP = 0.035;          // metres, peak deviation
@@ -21,14 +23,19 @@ const _right = new THREE.Vector3();
 const _slideOut = new THREE.Vector2();
 
 export type ColliderProvider = () => readonly AABB[];
+export type FloorHeightProvider = (x: number, z: number) => number;
 
 export class Player {
   readonly controls: PointerLockControls;
 
   private velocity = new THREE.Vector3();
-  private moveState = { forward: false, backward: false, left: false, right: false, sprint: false };
+  private moveState = { forward: false, backward: false, left: false, right: false, sprint: false, crouch: false };
+  private eyeHeight = EYE_HEIGHT;
   private getColliders: ColliderProvider = () => [];
+  private getFloorHeight: FloorHeightProvider = () => 0;
   private inputEnabled = true;
+  /** Current floor height under the player (lerped each frame). */
+  private floorY = 0;
 
   // Viewmodel (first-person arms + lantern) — children of camera
   private viewmodel!: THREE.Group;
@@ -77,6 +84,7 @@ export class Player {
   get isLocked(): boolean { return this.controls.isLocked; }
 
   setColliderProvider(fn: ColliderProvider): void { this.getColliders = fn; }
+  setFloorHeightProvider(fn: FloorHeightProvider): void { this.getFloorHeight = fn; }
 
   setInputEnabled(enabled: boolean): void {
     this.inputEnabled = enabled;
@@ -118,8 +126,17 @@ export class Player {
     _forward.normalize();
     _right.crossVectors(_forward, this.controls.object.up).normalize();
 
-    // Target velocity — if no input, target is zero (smooth stop).
-    const targetSpeed = this.moveState.sprint ? SPRINT_SPEED : WALK_SPEED;
+    // Smooth crouch — eye height lerps between standing + crouched.
+    // This is the ADD-ON above the current floor; floor itself lerps
+    // separately below so stairs feel smooth instead of snapping.
+    const targetEye = this.moveState.crouch ? CROUCH_EYE_HEIGHT : EYE_HEIGHT;
+    this.eyeHeight += (targetEye - this.eyeHeight) * Math.min(1, dt * 10);
+
+    // Target velocity — crouch is slowest, sprint is fastest. Crouch
+    // overrides sprint (can't both crouch and sprint).
+    const targetSpeed = this.moveState.crouch
+      ? CROUCH_SPEED
+      : this.moveState.sprint ? SPRINT_SPEED : WALK_SPEED;
     let targetX = 0, targetZ = 0;
     if (local.lengthSq() > 0) {
       local.normalize();
@@ -138,7 +155,12 @@ export class Player {
     const desiredDX = this.velocity.x * dt;
     const desiredDZ = this.velocity.z * dt;
 
-    moveAndSlide(pos.x, pos.z, desiredDX, desiredDZ, colliders, _slideOut);
+    // Y-filter colliders against the player's current vertical band
+    // (feet on current floor + head = feet + eye-height). Multi-floor
+    // levels need this so upper-floor walls don't block ground traffic.
+    const feetY = this.floorY;
+    const headY = feetY + EYE_HEIGHT + 0.1;
+    moveAndSlide(pos.x, pos.z, desiredDX, desiredDZ, colliders, _slideOut, undefined, feetY, headY);
     pos.x = _slideOut.x;
     pos.z = _slideOut.y;
 
@@ -154,7 +176,15 @@ export class Player {
     const bobSin = Math.sin(this.bobPhase);
     const bobY = bobSin * BOB_AMP * this.bobBlend;
     const bobX = Math.sin(this.bobPhase * 0.5) * BOB_LATERAL_AMP * this.bobBlend;
-    pos.y = EYE_HEIGHT + bobY;
+
+    // Floor height — lerp toward the scene's reported floor Y for the
+    // player's (x, z). Lets scenes raise the player up stairs + onto
+    // upper floors. Lerp rate is tuned so a step-rise of 0.32m feels
+    // smooth at walking speed but snappy enough to climb multi-step
+    // staircases without rubber-banding.
+    const targetFloor = this.getFloorHeight(pos.x, pos.z);
+    this.floorY += (targetFloor - this.floorY) * Math.min(1, dt * 12);
+    pos.y = this.floorY + this.eyeHeight + bobY;
 
     // Viewmodel counter-bobs slightly (opposite phase, softer) — gives it inertia.
     if (this.viewmodel) {
@@ -329,6 +359,13 @@ export class Player {
       case 'KeyA': case 'ArrowLeft':  this.moveState.left = true; break;
       case 'KeyD': case 'ArrowRight': this.moveState.right = true; break;
       case 'ShiftLeft': this.moveState.sprint = true; break;
+      // DOORS-style hide: C toggles crouch. While crouched + still
+      // inside a HideZone, stalkers lose sight (main.ts gates the
+      // hunt's target on this).
+      case 'KeyC':
+      case 'ControlLeft':
+        this.moveState.crouch = true;
+        break;
       case 'KeyE':
         if (this.controls.isLocked) this.onInteractKey?.();
         break;
@@ -342,6 +379,62 @@ export class Player {
       case 'KeyA': case 'ArrowLeft':  this.moveState.left = false; break;
       case 'KeyD': case 'ArrowRight': this.moveState.right = false; break;
       case 'ShiftLeft': this.moveState.sprint = false; break;
+      case 'KeyC':
+      case 'ControlLeft':
+        this.moveState.crouch = false;
+        break;
     }
+  }
+
+  /** Public — game systems need this to check hide state. */
+  isCrouched(): boolean {
+    return this.moveState.crouch;
+  }
+
+  /** Public — used by noise-detection (sprint = loud). */
+  isSprinting(): boolean {
+    return this.moveState.sprint && !this.moveState.crouch;
+  }
+
+  /** Current horizontal speed in m/s. */
+  currentSpeed(): number {
+    return Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z);
+  }
+
+  /**
+   * Clean respawn — used on Rush catch, death screens, or any forced
+   * teleport. Resets:
+   *   - world position to `pos`
+   *   - camera rotation to `yawRad` (looking down -Z by default)
+   *   - velocity (no slide into walls after the teleport)
+   *   - floorY (starts fresh, next frame's floorHeightAt query sets it)
+   *   - eyeHeight (standing)
+   *   - crouch / sprint / movement inputs
+   *   - head-bob state
+   *   - stillness + retreat tracking
+   *
+   * Without this, a teleport mid-sprint leaves the velocity intact and
+   * the player slides into geometry the collision loop can't catch.
+   */
+  respawnAt(pos: THREE.Vector3, yawRad = -Math.PI / 2): void {
+    this.controls.object.position.copy(pos);
+    this.controls.object.rotation.set(0, yawRad, 0);
+    this.velocity.set(0, 0, 0);
+    this.floorY = 0;
+    this.eyeHeight = EYE_HEIGHT;
+    this.moveState.forward = false;
+    this.moveState.backward = false;
+    this.moveState.left = false;
+    this.moveState.right = false;
+    this.moveState.sprint = false;
+    this.moveState.crouch = false;
+    this.bobPhase = 0;
+    this.bobBlend = 0;
+    this.prevBobSin = 0;
+    this.stillnessTimer = 0;
+    this.retreatAnchor = null;
+    this.lastMoveLenSq = 0;
+    this.prevLookDir.set(0, 0, -1);
+    this.lookAngularSpeed = 0;
   }
 }

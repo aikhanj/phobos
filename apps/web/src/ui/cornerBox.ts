@@ -17,21 +17,27 @@ export class CornerBox {
   private bpmValue: HTMLSpanElement;
   private logTerminal: HTMLDivElement;
   private statsBar: HTMLDivElement | null = null;
+  private analysisLine!: HTMLDivElement;
+  private noCamOverlay!: HTMLDivElement;
 
   constructor() {
     this.container = document.createElement('div');
     Object.assign(this.container.style, {
       position: 'fixed',
-      top: '16px',
-      right: '16px',
-      width: '300px',
+      top: '12px',
+      right: '12px',
+      // Bigger + brighter border: players reported they couldn't find
+      // the webcam feed at all. 360px wide panel with an orange accent
+      // border matches the CRT aesthetic and is impossible to miss.
+      width: '360px',
       zIndex: '10',
       fontFamily: "'Courier New', monospace",
       display: 'none',
-      border: '1px solid #222',
-      background: 'rgba(0,0,0,0.85)',
+      border: '2px solid #c09030',
+      background: 'rgba(0,0,0,0.92)',
       borderRadius: '2px',
       overflow: 'hidden',
+      boxShadow: '0 0 24px rgba(192,144,48,0.35), 0 0 60px rgba(0,0,0,0.8)',
     });
 
     // Webcam feed — wrapper hosts overlays (webcam ghost) on top of <video>
@@ -39,10 +45,51 @@ export class CornerBox {
     Object.assign(this.videoWrap.style, {
       position: 'relative',
       width: '100%',
-      height: '170px',
-      borderBottom: '1px solid #222',
+      // Taller video feed (210px) so it's obviously the player's face.
+      // Previous 170px was too short for the 360px width (~2:1 letterbox).
+      height: '210px',
+      borderBottom: '2px solid #c09030',
       overflow: 'hidden',
+      background: '#000',
     });
+
+    // Corner label above the video: "LIVE WEBCAM · SUBJECT 4722"
+    const videoLabel = document.createElement('div');
+    videoLabel.textContent = '● LIVE · SUBJECT 4722';
+    Object.assign(videoLabel.style, {
+      position: 'absolute',
+      top: '6px',
+      left: '8px',
+      zIndex: '3',
+      fontSize: '10px',
+      color: '#ff4444',
+      letterSpacing: '0.12em',
+      fontWeight: '700',
+      textShadow: '0 0 6px rgba(0,0,0,0.9)',
+      pointerEvents: 'none',
+    });
+    this.videoWrap.appendChild(videoLabel);
+
+    // "NO WEBCAM" overlay — hidden by default, shown when stream is null
+    // so players know the feed failed rather than seeing a silent black box.
+    this.noCamOverlay = document.createElement('div');
+    this.noCamOverlay.textContent = 'NO WEBCAM\nrefresh to grant access';
+    Object.assign(this.noCamOverlay.style, {
+      position: 'absolute',
+      inset: '0',
+      display: 'none',
+      alignItems: 'center',
+      justifyContent: 'center',
+      textAlign: 'center',
+      color: '#c09030',
+      background: 'rgba(0,0,0,0.8)',
+      fontSize: '12px',
+      letterSpacing: '0.15em',
+      whiteSpace: 'pre',
+      zIndex: '2',
+      pointerEvents: 'none',
+    });
+    this.videoWrap.appendChild(this.noCamOverlay);
 
     this.videoElement = document.createElement('video');
     this.videoElement.autoplay = true;
@@ -131,6 +178,23 @@ export class CornerBox {
     statsBar.appendChild(fearWrap);
     statsBar.appendChild(bpmWrap);
 
+    // Live analysis line — shows what the webcam/mic/LLM/profiler are
+    // currently reading. Updated every 500ms from the biosignal tick.
+    // Prior to this, players had no way to tell the AI was "watching" —
+    // they saw a FEAR bar but no sense of WHY it was moving. This line
+    // makes the reading legible in real time.
+    this.analysisLine = document.createElement('div');
+    Object.assign(this.analysisLine.style, {
+      padding: '4px 10px 6px',
+      fontSize: '9.5px',
+      lineHeight: '1.35',
+      color: '#88ff88',
+      borderBottom: '1px solid #1a1a1a',
+      letterSpacing: '0.02em',
+      wordBreak: 'break-word',
+    });
+    this.analysisLine.textContent = 'FACE: --  MIC: --  LLM: --  VEC: --';
+
     // Agent log terminal
     this.logTerminal = document.createElement('div');
     Object.assign(this.logTerminal.style, {
@@ -147,12 +211,55 @@ export class CornerBox {
     // Assemble
     this.container.appendChild(this.videoWrap);
     this.container.appendChild(statsBar);
+    this.container.appendChild(this.analysisLine);
     this.container.appendChild(this.logTerminal);
     document.body.appendChild(this.container);
   }
 
+  /**
+   * Update the live analysis readout. Called from the biosignal tick.
+   * One compact line — abbreviated tokens keep it readable in 300px.
+   *   face:   top expression + confidence (e.g. "fearful 0.42")
+   *   mic:    loudness + onset flag ("0.18+" for onset)
+   *   llm:    on/off + time-since-last-tick
+   *   vec:    profiler's dominant vector + phase
+   */
+  setAnalysisLine(parts: {
+    faceTop?: string;
+    faceConf?: number;
+    faceDetected?: boolean;
+    micLoud?: number;
+    micOnset?: boolean;
+    micActive?: boolean;
+    llmOnline?: boolean;
+    llmLastTick?: number;
+    vector?: string;
+    phase?: string;
+  }): void {
+    const face = parts.faceDetected
+      ? `FACE:${parts.faceTop ?? '?'} ${(parts.faceConf ?? 0).toFixed(2)}`
+      : 'FACE:no-face';
+    const mic = parts.micActive
+      ? `MIC:${(parts.micLoud ?? 0).toFixed(2)}${parts.micOnset ? '!' : ''}`
+      : 'MIC:off';
+    const llm = parts.llmOnline
+      ? `LLM:on${parts.llmLastTick !== undefined ? ' ' + Math.round(parts.llmLastTick) + 's' : ''}`
+      : 'LLM:off';
+    const vec = `VEC:${parts.vector ?? 'none'}${parts.phase === 'AMPLIFYING' ? '*' : ''}`;
+    this.analysisLine.textContent = `${face} · ${mic} · ${llm} · ${vec}`;
+    // Color shift: green when AI is actively reading, grey when blind.
+    const reading = parts.faceDetected || parts.micActive;
+    this.analysisLine.style.color = reading ? '#88ff88' : '#666666';
+  }
+
   attachStream(stream: MediaStream): void {
     this.videoElement.srcObject = stream;
+    this.noCamOverlay.style.display = 'none';
+  }
+
+  /** Show the "NO WEBCAM" overlay — call when getUserMedia was denied. */
+  showNoWebcam(): void {
+    this.noCamOverlay.style.display = 'flex';
   }
 
   /** The <video> element showing the webcam feed. */

@@ -162,31 +162,47 @@ export class Engine {
   /** Provided to Player so movement respects scene geometry. */
   getColliders = (): readonly AABB[] => this.colliderCache;
 
+  /**
+   * Floor height at world (x, z) for the current scene. Used by the
+   * player to walk up stairs / onto upper floors. Defaults to 0 when
+   * the scene doesn't implement floorHeightAt.
+   */
+  getFloorHeight = (x: number, z: number): number => {
+    const fn = this.currentRoom?.floorHeightAt;
+    if (!fn) return 0;
+    const y = fn.call(this.currentRoom!, x, z);
+    return typeof y === 'number' ? y : 0;
+  };
+
   /** Swap hemisphere tint per scene so the broad fill reads right for each room. */
   private applyHemi(name: string): void {
+    // Boosted hemisphere intensities — players reported the game was
+    // too dark to navigate. Keep the per-scene color palette but lift
+    // each scene's intensity by ~60% so geometry reads clearly while
+    // still feeling atmospheric under the PS1 jitter + CRT vignette.
     switch (name) {
       case 'campus':
-        this.hemi.color.setHex(0x8a9060); // overcast green-filtered canopy
+        this.hemi.color.setHex(0x8a9060);
         this.hemi.groundColor.setHex(0x1a180c);
-        this.hemi.intensity = 0.85;
+        this.hemi.intensity = 1.35;
         break;
       case 'basement':
-        this.hemi.color.setHex(0xa89880); this.hemi.groundColor.setHex(0x2a1f14); this.hemi.intensity = 0.65; break;
+        this.hemi.color.setHex(0xa89880); this.hemi.groundColor.setHex(0x2a1f14); this.hemi.intensity = 1.05; break;
       case 'bedroom':
-        this.hemi.color.setHex(0x9ea6d8); this.hemi.groundColor.setHex(0x342a40); this.hemi.intensity = 0.75; break;
+        this.hemi.color.setHex(0x9ea6d8); this.hemi.groundColor.setHex(0x342a40); this.hemi.intensity = 1.2; break;
       case 'attic':
-        this.hemi.color.setHex(0x8a7250); this.hemi.groundColor.setHex(0x1a1008); this.hemi.intensity = 0.5; break;
+        this.hemi.color.setHex(0x8a7250); this.hemi.groundColor.setHex(0x1a1008); this.hemi.intensity = 0.85; break;
       // ── eating clubs (interiors) ──
-      case 'tower':    this.hemi.color.setHex(0xb49878); this.hemi.groundColor.setHex(0x2a1c10); this.hemi.intensity = 0.7; break;
-      case 'cannon':   this.hemi.color.setHex(0xa89890); this.hemi.groundColor.setHex(0x1c1818); this.hemi.intensity = 0.6; break;
-      case 'ivy':      this.hemi.color.setHex(0xb08868); this.hemi.groundColor.setHex(0x1e1208); this.hemi.intensity = 0.7; break;
-      case 'cottage':  this.hemi.color.setHex(0xdac8a8); this.hemi.groundColor.setHex(0x282018); this.hemi.intensity = 0.85; break;
-      case 'capgown':  this.hemi.color.setHex(0x9e9898); this.hemi.groundColor.setHex(0x141218); this.hemi.intensity = 0.6; break;
-      case 'colonial': this.hemi.color.setHex(0xc8bc98); this.hemi.groundColor.setHex(0x1c1c18); this.hemi.intensity = 0.8; break;
-      case 'tigerinn': this.hemi.color.setHex(0x9c7848); this.hemi.groundColor.setHex(0x18100a); this.hemi.intensity = 0.55; break;
-      case 'terrace':  this.hemi.color.setHex(0xa48870); this.hemi.groundColor.setHex(0x18120a); this.hemi.intensity = 0.6; break;
-      case 'cloister': this.hemi.color.setHex(0x98a0a8); this.hemi.groundColor.setHex(0x121820); this.hemi.intensity = 0.65; break;
-      case 'charter':  this.hemi.color.setHex(0xd4c4a0); this.hemi.groundColor.setHex(0x201a14); this.hemi.intensity = 0.85; break;
+      case 'tower':    this.hemi.color.setHex(0xb49878); this.hemi.groundColor.setHex(0x2a1c10); this.hemi.intensity = 1.15; break;
+      case 'cannon':   this.hemi.color.setHex(0xa89890); this.hemi.groundColor.setHex(0x1c1818); this.hemi.intensity = 1.00; break;
+      case 'ivy':      this.hemi.color.setHex(0xb08868); this.hemi.groundColor.setHex(0x1e1208); this.hemi.intensity = 1.15; break;
+      case 'cottage':  this.hemi.color.setHex(0xdac8a8); this.hemi.groundColor.setHex(0x282018); this.hemi.intensity = 1.35; break;
+      case 'capgown':  this.hemi.color.setHex(0x9e9898); this.hemi.groundColor.setHex(0x141218); this.hemi.intensity = 1.00; break;
+      case 'colonial': this.hemi.color.setHex(0xc8bc98); this.hemi.groundColor.setHex(0x1c1c18); this.hemi.intensity = 1.30; break;
+      case 'tigerinn': this.hemi.color.setHex(0x9c7848); this.hemi.groundColor.setHex(0x18100a); this.hemi.intensity = 0.90; break;
+      case 'terrace':  this.hemi.color.setHex(0xa48870); this.hemi.groundColor.setHex(0x18120a); this.hemi.intensity = 1.00; break;
+      case 'cloister': this.hemi.color.setHex(0x98a0a8); this.hemi.groundColor.setHex(0x121820); this.hemi.intensity = 1.05; break;
+      case 'charter':  this.hemi.color.setHex(0xd4c4a0); this.hemi.groundColor.setHex(0x201a14); this.hemi.intensity = 1.35; break;
     }
   }
 
@@ -244,6 +260,18 @@ export class Engine {
 
   /** Current targeted interactable's id, or null. Useful for conditional voice lines. */
   getCurrentInteractable(): string | null { return this.currentInteractableId; }
+
+  /**
+   * Re-arm a once-fire trigger so it can fire again. Used by gated exit
+   * doors: the trigger fires, the gate check rejects the exit, and we
+   * re-add the id to `armedTriggers` so walking into the trigger after
+   * the player has satisfied the gate will fire it again.
+   */
+  rearmTrigger(id: string): void {
+    if (this.triggerCache.find((t) => t.id === id)) {
+      this.armedTriggers.add(id);
+    }
+  }
 
   /** Set CRT vignette radius (lower = more vignette). */
   setVignette(radius: number): void {

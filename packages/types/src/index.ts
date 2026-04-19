@@ -17,6 +17,30 @@ export interface GameScene {
   triggers?(): Trigger[];
   /** Optional: scenes register look-and-press-E interactables. */
   interactables?(): Interactable[];
+  /**
+   * Optional: hide zones. Player can crouch inside one of these
+   * (with no movement) to become invisible to stalkers. DOORS-style.
+   */
+  hideZones?(): HideZone[];
+  /**
+   * Optional: floor height at world position (x, z). Return the Y
+   * the player's feet should stand on. Used for stairs and upper
+   * floors. If omitted or returns null/undefined, the default (y=0)
+   * applies. Query frequency: every frame, per player.
+   */
+  floorHeightAt?(x: number, z: number): number | null | undefined;
+}
+
+/**
+ * A crouch-to-hide area inside a scene. Player must be positioned
+ * inside the AABB, crouched (lowered camera), and stationary for
+ * stalkers to lose sight.
+ */
+export interface HideZone {
+  id: string;
+  aabb: AABB;
+  /** World-space center — used for UI hints. */
+  center: { x: number; y: number; z: number };
 }
 
 export interface SceneConfig {
@@ -84,7 +108,8 @@ export type SoundId =
   | 'reverse_creak'
   | 'radio_static'
   | 'tone_wrong'
-  | 'impact';
+  | 'impact'
+  | 'scream';
 
 /** Named movable/animatable props. Scenes register props. */
 export type PropId =
@@ -160,12 +185,85 @@ export interface AgentLogEntry {
 
 /** Input context assembled each 10s agent tick for the Phobos director. */
 export interface PhobosTickContext {
-  scene: 'basement' | 'bedroom' | 'attic';
+  /**
+   * Scene identifier: 'campus' + 10 club ids + the legacy house scenes.
+   * Kept as `string` so new scene ids flow through without a type churn.
+   */
+  scene: string;
   biosignals: BiosignalState;
   playerPosition: [number, number, number];
   playerFacing: [number, number, number];
   timeInScene: number;
   totalSessionTime: number;
+  /** Targeting dossier collected from the Bicker Compatibility Form. */
+  profile?: PlayerProfile;
+  /** Recent high-signal session events (spikes, pickups, scene changes). */
+  recentHistory?: SessionHistoryEvent[];
+  /**
+   * One-line digest of the scare profiler — phase (experimenting vs
+   * amplifying), dominant vector, top-3 categories by effectiveness.
+   * Lets the LLM director target the player's weak spot.
+   */
+  scareProfileDigest?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Player profile — the Bicker Form dossier Phobos weaponizes against them
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Answers collected from the Bicker Compatibility Assessment Form before play.
+ * These are the "targeting" data the director interpolates into whispers,
+ * log messages, note content, and the reveal sequence. Every field is player-
+ * supplied free text — never trust it beyond a short substitution.
+ */
+export interface PlayerProfile {
+  /** Preferred first name or nickname. Used in whispers + final reveal. */
+  name: string;
+  /** Hometown / where they grew up. Defaults to "home" if blank. */
+  hometown: string;
+  /** Princeton residential college (Rocky, Mathey, Whitman, Butler, Forbes, Yeh, NCW). */
+  college: string;
+  /** Concentration / major. Used for taunts that target academic identity. */
+  concentration: string;
+  /** One specific fear the player typed in. Phobos feeds this back literally. */
+  fear: string;
+  /** An object the player can see in the room right now — breaks the 4th wall. */
+  objectInRoom: string;
+  /** A person they miss. Surfaced in late-game whispers. */
+  missedPerson: string;
+  /** Free-form: last place they felt watched. */
+  watchedPlace: string;
+  /** Wall-clock ms when the form was submitted. */
+  submittedAt: number;
+}
+
+/**
+ * High-signal event the director can reference in later ticks — "your heart
+ * rate jumped 22 bpm at 14:32:07" style callbacks. Bounded ring buffer.
+ */
+export type SessionHistoryEventKind =
+  | 'fear_spike'
+  | 'scene_enter'
+  | 'pickup'
+  | 'flinch'
+  | 'stare'
+  | 'retreat';
+
+export interface SessionHistoryEvent {
+  kind: SessionHistoryEventKind;
+  /** Wall-clock ms. */
+  timestamp: number;
+  /** Scene the event occurred in (campus or club id). */
+  scene: string;
+  /** Optional fear score at time of event (0-1). */
+  fearScore?: number;
+  /** Optional delta over spike window (spikes only). */
+  delta?: number;
+  /** Optional bpm at time of event. */
+  bpm?: number;
+  /** Free-form label — note id, anchor, etc. */
+  label?: string;
 }
 
 /** Definition for a discoverable note in the environment. */

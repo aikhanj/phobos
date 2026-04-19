@@ -3,6 +3,10 @@ import type { FadeOverlay } from '../ui/fadeOverlay';
 import type { AudioManager } from '../audio/audioManager';
 import type { WebcamGhost } from './webcamGhost';
 import type { VoiceEngine } from '@phobos/voice';
+import { playerProfile } from '../game/playerProfile';
+import { sessionHistory } from '../game/sessionHistory';
+import { REVEAL_AMPLIFIED_LINES } from './storyline';
+import type { DominantVector } from './scareProfiler';
 
 export interface RevealSequenceDeps {
   cornerBox: CornerBox;
@@ -14,6 +18,13 @@ export interface RevealSequenceDeps {
   sessionStartTime: number;
   lastFearScore: number;
   lastBpm: number;
+  /**
+   * Scare profiler's assessment of what scared THIS player most. Drives
+   * the diagnostic line in the data readout, the big title message
+   * before "Calibration complete", and the final TTS line. The whole
+   * point of the profiler is that this reveal feels targeted.
+   */
+  dominantVector?: DominantVector;
 }
 
 /**
@@ -66,33 +77,76 @@ export class RevealSequence {
     const minutes = Math.floor(sessionDuration / 60);
     const seconds = Math.floor(sessionDuration % 60);
 
+    const profile = playerProfile.get();
+    const hasProfile = playerProfile.isSubmitted;
+    const displayName = hasProfile ? profile.name : 'subject 4722';
+    const peakFear = sessionHistory.peakFear();
+    // Scare profiler verdict — drives the adaptive diagnostic + ending.
+    // Falls back to 'none' if the run was too short to resolve a vector.
+    const vector = this.deps.dominantVector ?? 'none';
+    const amp = REVEAL_AMPLIFIED_LINES[vector];
+
     const dataLines = [
       `fear_score: ${this.deps.lastFearScore.toFixed(2)}`,
+      `peak_fear: ${peakFear.toFixed(2)}`,
       `bpm: ${this.deps.lastBpm || 72}`,
       `gaze_aversion: ${(Math.random() * 0.4 + 0.3).toFixed(2)}`,
       `flinch_count: ${Math.floor(Math.random() * 6 + 2)}`,
       `look_stillness: ${(Math.random() * 0.3 + 0.4).toFixed(2)}`,
       `session_duration: ${minutes}m ${seconds}s`,
       '',
+      amp.diagnosis,
+      '',
+      `referring member: ${displayName.toLowerCase()}`,
+      hasProfile ? `residential college: ${profile.college}` : 'residential college: [unknown]',
+      hasProfile ? `concentration: ${profile.concentration}` : 'concentration: [unknown]',
+      hasProfile ? `declared fear: "${profile.fear.toLowerCase()}"` : 'declared fear: [not collected]',
+      '',
       `subject 4721: session terminated.`,
       `subject 4721: profile absorbed.`,
       '',
       `subject 4722: session active.`,
       `subject 4722: fear_score: ${this.deps.lastFearScore.toFixed(2)}`,
-      `subject 4722: calibration quality: EXCELLENT`,
+      `subject 4722: calibration quality: ARCHIVAL GRADE`,
       '',
-      `you came looking for 4721.`,
+      `authorizing officer: dean c.l. eisgruber`,
+      `office of the president · nassau hall · 03/14/2026`,
+      `FRG_LOCK active · chapel bell queued · 12 tolls`,
+      '',
+      hasProfile
+        ? `you came looking for ${profile.missedPerson.toLowerCase()}.`
+        : 'you came looking for 4721.',
+      `dean eisgruber came looking for you.`,
     ];
 
     await this.typeLines(dataLines, 150);
     await sleep(1200);
 
-    // Step 5: Final messages — clinical → personal → guilt
+    // Step 5: Final messages — clinical → personal → profiler verdict → guilt
     this.clearOverlay();
-    await this.showFinalMessage('You are subject 4722.');
+    if (hasProfile) {
+      await this.showFinalMessage(`You are ${profile.name}.`);
+      await sleep(2500);
+      await this.showFinalMessage('You filled out the form. You already knew.');
+      await sleep(3000);
+      await this.showFinalMessage(
+        `You wrote "${profile.fear}". We kept it.`,
+      );
+      await sleep(3000);
+    } else {
+      await this.showFinalMessage('You are subject 4722.');
+      await sleep(2500);
+      await this.showFinalMessage('You filled out the form. You already knew.');
+      await sleep(3000);
+    }
+    // Profiler-targeted line — different for each dominant vector. This
+    // is the moment the session-long telemetry becomes narrative payload.
+    await this.showFinalMessage(amp.titleMessage);
+    await sleep(3200);
+    await this.showFinalMessage('Dean Eisgruber thanks you for your cooperation.');
+    await sleep(3200);
+    await this.showFinalMessage('Sign-in is closed.');
     await sleep(2500);
-    await this.showFinalMessage('You filled out the form. You already knew.');
-    await sleep(3000);
     await this.showFinalMessage('Calibration complete.');
     await sleep(2000);
 
@@ -104,8 +158,15 @@ export class RevealSequence {
     if (voice && defaultVoiceId) {
       await sleep(1000);
       try {
+        // Closing TTS uses the profiler's voice line — targeted to what
+        // actually scared this player. Falls back to the generic form
+        // callback when no vector was resolved.
+        const targetedClose = amp.voiceLine;
+        const closingLine = hasProfile
+          ? `${targetedClose} you filled out the form, ${profile.name.toLowerCase()}. dean eisgruber signed it. the chapel bell is ringing. you are staying.`
+          : `${targetedClose} you filled out the form. dean eisgruber signed it. the chapel bell is ringing. you are staying.`;
         const handle = voice.speak({
-          text: 'you filled out the form. you already knew.',
+          text: closingLine,
           voiceId: defaultVoiceId,
           gain: 0.7,
         });

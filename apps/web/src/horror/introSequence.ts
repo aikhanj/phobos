@@ -1,6 +1,9 @@
 import type { CornerBox } from '../ui/cornerBox';
 import type { FadeOverlay } from '../ui/fadeOverlay';
 import type { VoiceEngine } from '@phobos/voice';
+import { playerProfile } from '../game/playerProfile';
+import { PhonePanel } from '../ui/phonePanel';
+import { PHONE_THREAD, ROOMMATE, DAYS_SILENT } from './storyline';
 
 export interface IntroSequenceDeps {
   cornerBox: CornerBox;
@@ -28,16 +31,45 @@ export class IntroSequence {
 
     fade.holdBlack();
 
+    // ── Phone thread: the last conversation with Elliot, a year ago. ──
+    // Concretizes "subject 4721" as a real person before the abstract
+    // system-voice framing takes over. The thread's final message is
+    // unanswered — that silence is the player's complicity.
+    const phone = new PhonePanel({
+      messages: PHONE_THREAD,
+      contactName: ROOMMATE.fullName,
+      contactSubtitle: `last seen ${DAYS_SILENT} days ago · forbes college · '${ROOMMATE.classYear.slice(2)}`,
+    });
+    await phone.show();
+    await phone.hide();
+
     this.card = this.createCard();
     document.body.appendChild(this.card);
 
     await sleep(900);
 
+    const profile = playerProfile.get();
+    const nameLine = playerProfile.isSubmitted
+      ? `referring member: ${profile.name.toLowerCase()}. form 7b on file.`
+      : 'referring member: [redacted]. form 7b on file.';
+    const collegeLine = playerProfile.isSubmitted
+      ? `residential college: ${profile.college}. cross-ref: prior subject match.`
+      : 'residential college: [unknown].';
+    const fearLine = playerProfile.isSubmitted && profile.fear !== 'the dark'
+      ? `section 3.7 response logged: "${profile.fear.toLowerCase()}". noted.`
+      : 'section 3.7 response logged.';
     const lines = [
       'intake begin. subject 4722.',
-      'prior subject: 4721. status: terminated.',
+      nameLine,
+      `prior subject: 4721 — chen, elliot. status: absorbed.`,
+      `last message: "come to tower. something is wrong." · ${DAYS_SILENT} days unanswered.`,
+      collegeLine,
+      fearLine,
       'last known location: tower club. bicker night. 23:14.',
       'calibration environment: prospect avenue.',
+      'protocol author: c.l. eisgruber · office of the president · nassau hall.',
+      'authorizing signature on file: dean eisgruber · 03/14/2025 · 23:41.',
+      'FRG_LOCK: egress denied. dean eisgruber is holding the key.',
     ];
     for (const line of lines) {
       cornerBox.appendLog({ source: 'phobos', message: line, timestamp: Date.now() });
@@ -49,8 +81,11 @@ export class IntroSequence {
     let ttsDone: Promise<void> = Promise.resolve();
     if (voice && defaultVoiceId) {
       try {
+        const personalizedOpener = playerProfile.isSubmitted
+          ? `welcome, ${profile.name.toLowerCase()}. dean eisgruber read your form. elliot walked this street before you. he went to tower first. you should too.`
+          : 'welcome, four seven two two. dean eisgruber read your form. elliot walked this street before you. he went to tower first. you should too.';
         const handle = voice.speak({
-          text: 'welcome, four seven two two. subject four seven two one walked this street before you. begin at tower club.',
+          text: personalizedOpener,
           voiceId: defaultVoiceId,
           gain: 0.85,
         });
@@ -102,7 +137,7 @@ export class IntroSequence {
     });
 
     const sub = document.createElement('div');
-    sub.textContent = 'bicker night. year unknown.';
+    sub.textContent = `bicker night. ${DAYS_SILENT} days later.`;
     Object.assign(sub.style, {
       fontSize: '0.75rem',
       color: '#604020',

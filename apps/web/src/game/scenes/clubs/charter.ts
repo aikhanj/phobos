@@ -6,6 +6,8 @@ import {
   buildShell, makeBox, makeEmissive, makeDiningTable, makeSconce, makePilaster,
   makeArmchair, makeBookshelf, makeRug, makeExitDoor, makeFramedPicture,
   addAbandonment,
+  makePickupBeacon, updatePickupBeacon, type PickupBeacon,
+  makeHideZone, type HideZone, makeBloodWriting,
 } from './_shared';
 
 /**
@@ -27,7 +29,9 @@ export class CharterInterior implements GameScene {
   private fireGlow!: THREE.PointLight;
   private pickup!: THREE.Mesh;
   private pickupLight!: THREE.PointLight;
+  private pickupBeacon!: PickupBeacon;
   private pickupCollected = false;
+  private hideZoneRefs: HideZone[] = [];
   private readonly onExit: () => void;
   private onPickup: (() => void) | null = null;
 
@@ -166,6 +170,19 @@ export class CharterInterior implements GameScene {
     this.pickupLight = new THREE.PointLight(0xffe0a0, 0.4, 2);
     this.pickupLight.position.set(-4.5, 1.23, 0);
     this.group.add(this.pickupLight);
+    this.pickupBeacon = makePickupBeacon(this.group, -4.5, 0, 0.93, 0xe77500);
+
+    // BLOOD WRITING — "YOUR SEAT" above the mantel. The endgame reveal
+    // starts here: it's your seat at the head of the table.
+    makeBloodWriting(this.group, 'YOUR SEAT', 0, 3.7, -hd + 0.14, 'north', 0.5);
+
+    // HIDE ZONES — under the long table.
+    this.hideZoneRefs.push(makeHideZone(
+      this.group, 'hide_charter_table_n', -1.8, 0.4, -1.5, 0.9, 0.6, 0.9,
+    ));
+    this.hideZoneRefs.push(makeHideZone(
+      this.group, 'hide_charter_table_s', 1.8, 0.4, 1.5, 0.9, 0.6, 0.9,
+    ));
 
     // Abandonment debris.
     addAbandonment(this.group, w, d, h);
@@ -190,6 +207,7 @@ export class CharterInterior implements GameScene {
     this.group.clear();
     this.bounds.length = 0;
     this.triggerBoxes.length = 0;
+    this.hideZoneRefs.length = 0;
   }
 
   update(dt: number): void {
@@ -198,11 +216,14 @@ export class CharterInterior implements GameScene {
     // Pickup light pulse.
     if (!this.pickupCollected) {
       this.pickupLight.intensity = 0.3 + Math.sin(this.time * 2.5) * 0.15;
+      updatePickupBeacon(this.pickupBeacon, this.time);
     }
   }
 
   colliders(): AABB[] { return this.bounds; }
   triggers(): Trigger[] { return this.triggerBoxes; }
+  hideZones(): HideZone[] { return this.hideZoneRefs; }
+  floorHeightAt(): number { return 0; }
 
   interactables(): Interactable[] {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -210,14 +231,15 @@ export class CharterInterior implements GameScene {
     return [
       {
         id: 'pickup_charter',
-        box: aabbFromCenter(-4.5, 0.93, 0, 0.2, 0.1, 0.2),
-        hint: 'read',
-        range: 2.5,
+        box: aabbFromCenter(-4.5, 1.05, 0, 0.4, 0.35, 0.4),
+        hint: 'read seal',
+        range: 3.0,
         get enabled(): boolean { return !scene.pickupCollected; },
         onInteract: () => {
           scene.pickupCollected = true;
           scene.pickup.visible = false;
           scene.pickupLight.intensity = 0;
+          scene.pickupBeacon.group.visible = false;
           scene.onPickup?.();
         },
       },
